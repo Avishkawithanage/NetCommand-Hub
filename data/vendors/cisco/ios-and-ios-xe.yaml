@@ -1,0 +1,950 @@
+# Cisco IOS / IOS-XE templates. Each template below is expanded once for "ios" and once for "ios-xe".
+# Status is "unverified" for everything: no entry here has been reviewed against vendor documentation
+# by a maintainer or tested in a lab. Do not change a status without adding review evidence.
+vendor: cisco
+platforms: [ios, ios-xe]
+os_versions: []
+compatibility_note: >-
+  Written to common IOS / IOS-XE CLI conventions. Exact release and model support has NOT been verified.
+  Some commands differ or are unavailable on specific models (for example router vs. switch platforms).
+templates:
+  - id: hostname-basics
+    title: Set hostname and disable DNS lookup
+    category: basics
+    task: set_hostname
+    summary: Set the device hostname and stop the CLI trying to resolve mistyped commands as hostnames.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Be in privileged EXEC mode and enter global configuration mode with "configure terminal".
+    placeholders:
+      hostname:
+        type: string
+        label: Hostname
+        description: Letters, digits and hyphens only; must start with a letter or digit.
+        pattern: '^[A-Za-z0-9][A-Za-z0-9\-]{0,62}$'
+        max_length: 63
+        example: SW-ACCESS-01
+    template: |
+      hostname {{hostname}}
+      no ip domain-lookup
+    explanation:
+      - { line: "hostname {{hostname}}", text: "Sets the device name shown in the prompt and used in logs." }
+      - { line: "no ip domain-lookup", text: "Prevents long delays when a mistyped command is treated as a hostname lookup." }
+    expected_outcome: The CLI prompt changes to the new hostname immediately.
+    verification_commands:
+      - show running-config | include hostname
+    rollback_notes: Re-enter "hostname <old-name>" and "ip domain-lookup" to restore the previous behaviour.
+    warnings:
+      - Changing the hostname after generating RSA keys does not regenerate the keys.
+    tags: [hostname, basics]
+    related: [ssh-access]
+
+  - id: vlan-create
+    title: Create a VLAN
+    category: vlan
+    task: create_vlan
+    summary: Create a VLAN and give it a descriptive name.
+    difficulty: beginner
+    verification_status: unverified
+    platform_overrides:
+      ios-xe:
+        verification_status: reviewed
+        reviewed_at: 2026-10-19
+        os_versions: ["17.9 (Catalyst 9300)"]
+        compatibility_note: "Syntax checked against the Catalyst 9300 IOS XE 17.9.x VLAN Configuration Guide. Other models and releases, and classic IOS, are not verified."
+        review_evidence: "Documentation review only (no lab test). Compared against 'Creating or Modifying an Ethernet VLAN' in the Catalyst 9300 17.9.x VLAN Configuration Guide, updated 2022-08-01. Commands vlan <id> and name <name> match."
+        source_urls: ["https://www.cisco.com/c/en/us/td/docs/switches/lan/catalyst9300/software/release/17-9/configuration_guide/vlan/b_179_vlan_9300_cg/configuring_vlans.html"]
+    added_at: 2026-10-18
+    prerequisites:
+      - Confirm the VLAN ID is allowed by the network design and not already in use.
+      - Enter global configuration mode.
+    placeholders:
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        description: 1-4094. IDs 1002-1005 are reserved on many Cisco platforms and 1006-4094 are extended-range.
+        min: 1
+        max: 4094
+        example: "10"
+      vlan_name:
+        type: string
+        label: VLAN name
+        pattern: '^[A-Za-z0-9_\-]{1,32}$'
+        max_length: 32
+        example: USERS
+    template: |
+      vlan {{vlan_id}}
+       name {{vlan_name}}
+    explanation:
+      - { line: "vlan {{vlan_id}}", text: "Creates the VLAN (if needed) and enters VLAN configuration mode." }
+      - { line: "name {{vlan_name}}", text: "Sets the VLAN name used in show output." }
+    expected_outcome: The VLAN exists in the VLAN database with the chosen name.
+    verification_commands:
+      - show vlan brief
+      - show vlan id {{vlan_id}}
+    rollback_notes: "Use \"no vlan <id>\" only after removing the VLAN from every port; ports left in a deleted VLAN lose connectivity."
+    warnings:
+      - On some switches in VTP server mode, VLAN changes can propagate to other switches. Check the VTP mode first.
+    tags: [vlan, switching]
+    related: [access-port, trunk-port, svi-ip]
+
+  - id: access-port
+    title: Configure an access port in a VLAN
+    category: switchport
+    task: configure_access_port
+    summary: Set a switch port as an access port in a single VLAN.
+    difficulty: beginner
+    verification_status: unverified
+    platform_overrides:
+      ios-xe:
+        verification_status: reviewed
+        reviewed_at: 2026-10-19
+        os_versions: ["17.9 (Catalyst 9300)"]
+        compatibility_note: "Syntax checked against the Catalyst 9300 IOS XE 17.9.x VLAN Configuration Guide. Other models and releases, and classic IOS, are not verified."
+        review_evidence: "Documentation review only (no lab test). Compared against 'Assigning Static-Access Ports to a VLAN' in the Catalyst 9300 17.9.x VLAN Configuration Guide, updated 2022-08-01. switchport mode access and switchport access vlan <id> match; the guide adds that assigning a port to a nonexistent VLAN creates it."
+        source_urls: ["https://www.cisco.com/c/en/us/td/docs/switches/lan/catalyst9300/software/release/17-9/configuration_guide/vlan/b_179_vlan_9300_cg/configuring_vlans.html"]
+    added_at: 2026-10-18
+    prerequisites:
+      - The VLAN already exists (see "Create a VLAN").
+      - The interface is a layer-2 switch port.
+    placeholders:
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){0,3}$'
+        max_length: 40
+        example: GigabitEthernet1/0/5
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 1
+        max: 4094
+        example: "10"
+      description:
+        type: string
+        label: Port description
+        max_length: 60
+        example: User PC - Room 12
+    template: |
+      interface {{interface}}
+       description {{description}}
+       switchport mode access
+       switchport access vlan {{vlan_id}}
+       no shutdown
+    explanation:
+      - { line: "interface {{interface}}", text: "Selects the port to configure." }
+      - { line: "switchport mode access", text: "Forces the port to be an untagged access port (no trunk negotiation)." }
+      - { line: "switchport access vlan {{vlan_id}}", text: "Places the port in the chosen VLAN." }
+      - { line: "no shutdown", text: "Ensures the port is administratively up." }
+    expected_outcome: The port is up (when a device is connected) and a member of the VLAN.
+    verification_commands:
+      - show interfaces {{interface}} switchport
+      - show vlan brief
+    rollback_notes: Restore the previous "switchport access vlan" value from your backup.
+    warnings:
+      - Changing the VLAN of a live port interrupts the connected device. Never apply this to an uplink.
+    tags: [access, vlan, switchport]
+    related: [vlan-create, trunk-port]
+
+  - id: trunk-port
+    title: Configure an 802.1Q trunk port
+    category: switchport
+    task: configure_trunk_port
+    summary: Set a port as a trunk carrying a defined list of VLANs.
+    difficulty: intermediate
+    verification_status: unverified
+    platform_overrides:
+      ios-xe:
+        verification_status: reviewed
+        reviewed_at: 2026-10-19
+        os_versions: ["17.9 (Catalyst 9300)"]
+        compatibility_note: "Syntax checked against the Catalyst 9300 IOS XE 17.9.x VLAN Configuration Guide. Other models and releases, and classic IOS, are not verified."
+        review_evidence: "Documentation review only (no lab test). Compared against 'Configuring VLAN Trunks' (Defining the Allowed VLANs on a Trunk) in the Catalyst 9300 17.9.x VLAN Configuration Guide, updated 2022-08-01. switchport mode trunk and switchport trunk allowed vlan <list> match. The guide does not mention switchport trunk encapsulation dot1q, so the claim about older/newer platforms is unconfirmed."
+        source_urls: ["https://www.cisco.com/c/en/us/td/docs/switches/lan/catalyst9300/software/release/17-9/configuration_guide/vlan/b_179_vlan_9300_cg/configuring_vlan_trunks.html"]
+    added_at: 2026-10-18
+    prerequisites:
+      - Both ends of the link must agree on the allowed VLANs and the native VLAN.
+      - Some platforms need "switchport trunk encapsulation dot1q" before "switchport mode trunk" (it is not part of this template); check your model's documentation.
+    placeholders:
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){0,3}$'
+        max_length: 40
+        example: GigabitEthernet1/0/48
+      allowed_vlans:
+        type: vlan_list
+        label: Allowed VLANs
+        description: Comma-separated IDs and ranges.
+        example: 10,20,30-40
+    template: |
+      interface {{interface}}
+       switchport mode trunk
+       switchport trunk allowed vlan {{allowed_vlans}}
+       no shutdown
+    explanation:
+      - { line: "switchport mode trunk", text: "Makes the port an unconditional trunk." }
+      - { line: "switchport trunk allowed vlan {{allowed_vlans}}", text: "Replaces the allowed-VLAN list with exactly this list." }
+    expected_outcome: The port trunks the listed VLANs only.
+    verification_commands:
+      - show interfaces trunk
+      - show interfaces {{interface}} switchport
+    rollback_notes: Re-apply the previous allowed-VLAN list, or use "switchport trunk allowed vlan add <list>" to add VLANs without replacing the list.
+    warnings:
+      - This command REPLACES the allowed list. Applying it to a live uplink can cut off VLANs and your own management access.
+    tags: [trunk, 802.1q, vlan]
+    related: [vlan-create, etherchannel-lacp]
+
+  - id: etherchannel-lacp
+    title: Create an LACP EtherChannel
+    category: lag
+    task: configure_etherchannel
+    summary: Bundle member interfaces into a Port-Channel using LACP and make it a trunk.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Member ports must have matching speed, duplex and switchport settings.
+      - The remote device must be configured for the same channel before links are connected, to avoid loops.
+    placeholders:
+      member_range:
+        type: string
+        label: Member interface range
+        description: "Interface range such as GigabitEthernet1/0/1 - 2."
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){0,3}( - [0-9]+)?$'
+        max_length: 50
+        example: GigabitEthernet1/0/1 - 2
+      channel_group:
+        type: integer
+        label: Channel group number
+        min: 1
+        max: 255
+        example: "1"
+      lacp_mode:
+        type: enum
+        label: LACP mode
+        options: [active, passive]
+        default: active
+      allowed_vlans:
+        type: vlan_list
+        label: Allowed VLANs on the bundle
+        example: 10,20
+    template: |
+      interface range {{member_range}}
+       channel-group {{channel_group}} mode {{lacp_mode}}
+      !
+      interface Port-channel{{channel_group}}
+       switchport mode trunk
+       switchport trunk allowed vlan {{allowed_vlans}}
+    explanation:
+      - { line: "channel-group {{channel_group}} mode {{lacp_mode}}", text: "Adds the members to the bundle and negotiates it with LACP. Two passive ends never form a channel." }
+      - { line: "interface Port-channel{{channel_group}}", text: "Settings applied here apply to the whole bundle." }
+    expected_outcome: The Port-channel comes up with all members bundled (flag P).
+    verification_commands:
+      - show etherchannel summary
+      - show interfaces Port-channel{{channel_group}}
+    rollback_notes: Remove with "no channel-group" on the members and "no interface Port-channel<n>" after shutting the links to avoid loops.
+    warnings:
+      - Changing member ports on a live link causes a short outage. Do this during a maintenance window.
+    tags: [etherchannel, lacp, port-channel, lag]
+    related: [trunk-port]
+
+  - id: svi-ip
+    title: Create a VLAN interface (SVI) with an IPv4 address
+    category: ip-addressing
+    task: configure_svi
+    summary: Give a VLAN a layer-3 interface on a multilayer switch.
+    difficulty: intermediate
+    verification_status: unverified
+    platform_overrides:
+      ios-xe:
+        verification_status: reviewed
+        reviewed_at: 2026-10-19
+        os_versions: ["17.9 (Catalyst 9300)"]
+        compatibility_note: "Checked against the Catalyst 9300 IOS XE 17.9.x IP Routing Configuration Guide. Other models and releases, and classic IOS, are not verified."
+        review_evidence: "Documentation review only (no lab test). 'Configuring IP Unicast Routing' (17.9.x) describes an SVI as created with 'interface vlan <id>' and shows 'ip address <addr> <mask>', 'no shutdown' (example given for a physical interface, not an SVI) and 'ip routing'. 'ip routing' is not part of this template; it is listed as a prerequisite."
+        source_urls: ["https://www.cisco.com/c/en/us/td/docs/switches/lan/catalyst9300/software/release/17-9/configuration_guide/rtng/b_179_rtng_9300_cg/configuring_ip_unicast_routing.html"]
+    added_at: 2026-10-18
+    prerequisites:
+      - The VLAN exists and the device supports routed interfaces.
+      - Use "ip routing" if the switch is to route between VLANs.
+    placeholders:
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 1
+        max: 4094
+        example: "10"
+      ip_address:
+        type: ipv4
+        label: IPv4 address
+        example: 192.168.10.1
+      subnet_mask:
+        type: ipv4_netmask
+        label: Subnet mask
+        example: 255.255.255.0
+    template: |
+      interface Vlan{{vlan_id}}
+       ip address {{ip_address}} {{subnet_mask}}
+       no shutdown
+    explanation:
+      - { line: "interface Vlan{{vlan_id}}", text: "Creates the switched virtual interface for the VLAN." }
+      - { line: "ip address {{ip_address}} {{subnet_mask}}", text: "Assigns the gateway address for hosts in this VLAN." }
+    expected_outcome: The SVI shows up/up once at least one active port is in the VLAN.
+    verification_commands:
+      - show ip interface brief
+      - show interfaces Vlan{{vlan_id}}
+    rollback_notes: Use "no interface Vlan<id>" to remove it.
+    warnings:
+      - The address must not overlap another interface subnet on the device.
+    tags: [svi, vlan interface, ip address]
+    related: [vlan-create, static-route]
+
+  - id: routed-interface-ip
+    title: Assign an IPv4 address to a routed interface
+    category: ip-addressing
+    task: configure_interface_ip
+    summary: Set an IPv4 address and mask on a layer-3 interface.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - On a multilayer switch, a physical port must first be converted with "no switchport" (not included; it is rejected on routers).
+    placeholders:
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){0,3}$'
+        max_length: 40
+        example: GigabitEthernet0/0/1
+      description:
+        type: string
+        label: Description
+        max_length: 60
+        example: Link to ISP
+      ip_address:
+        type: ipv4
+        label: IPv4 address
+        example: 203.0.113.2
+      subnet_mask:
+        type: ipv4_netmask
+        label: Subnet mask
+        example: 255.255.255.252
+    template: |
+      interface {{interface}}
+       description {{description}}
+       ip address {{ip_address}} {{subnet_mask}}
+       no shutdown
+    explanation:
+      - { line: "ip address {{ip_address}} {{subnet_mask}}", text: "Sets the primary IPv4 address of the interface." }
+    expected_outcome: The interface is up/up with the address shown in the brief output.
+    verification_commands:
+      - show ip interface brief
+      - show running-config interface {{interface}}
+    rollback_notes: Use "no ip address" on the interface, then re-enter the old address.
+    warnings:
+      - Changing the address of the interface you are connected through will drop your session.
+    tags: [interface, ip address]
+    related: [static-route]
+
+  - id: static-route
+    title: Add an IPv4 static route
+    category: static-routing
+    task: configure_static_route
+    summary: Add a static route to a destination network via a next-hop address.
+    difficulty: beginner
+    verification_status: unverified
+    platform_overrides:
+      ios-xe:
+        compatibility_note: "The 'ip route <net> <mask> <next-hop>' syntax could NOT be located in the readable parts of the Catalyst 9300 IOS XE 17.9.x IP Routing guide or command reference, so it is not verified. 'ip routing' is documented in that guide."
+    added_at: 2026-10-18
+    prerequisites:
+      - The next hop must be reachable on a directly connected network.
+      - Routing must be enabled ("ip routing" on multilayer switches).
+    placeholders:
+      dest_network:
+        type: ipv4
+        label: Destination network
+        description: Use 0.0.0.0 with mask 0.0.0.0 for a default route.
+        example: 10.20.0.0
+      subnet_mask:
+        type: ipv4_netmask
+        label: Destination mask
+        example: 255.255.0.0
+      next_hop:
+        type: ipv4
+        label: Next hop
+        example: 192.168.1.254
+    template: |
+      ip route {{dest_network}} {{subnet_mask}} {{next_hop}}
+    explanation:
+      - { line: "ip route {{dest_network}} {{subnet_mask}} {{next_hop}}", text: "Installs the route with the default administrative distance of 1." }
+    expected_outcome: The route appears as "S" in the routing table.
+    verification_commands:
+      - show ip route static
+      - show ip route {{dest_network}}
+    rollback_notes: Remove with the same command prefixed by "no".
+    warnings:
+      - A wrong default route can break all off-net connectivity including management.
+    tags: [static route, default route, routing]
+    related: [routed-interface-ip, ospf-basic]
+
+  - id: ospf-basic
+    title: Enable OSPF on a network
+    category: ospf
+    task: configure_ospf
+    summary: Start an OSPF process, set the router ID and advertise a network into an area.
+    difficulty: intermediate
+    verification_status: unverified
+    platform_overrides:
+      ios-xe:
+        compatibility_note: "Partly checked against the Catalyst 9300 IOS XE 17.9.x 'Configuring OSPF' chapter: 'router ospf <id>' and 'network <addr> <wildcard> area <id>' are documented there. 'router-id' was NOT found in that chapter or in the readable part of the command reference, so the template stays Unverified. Other models/releases and classic IOS are not verified."
+    added_at: 2026-10-18
+    prerequisites:
+      - Interfaces covered by the network statement must be configured and up.
+      - Pick a unique router ID.
+    placeholders:
+      process_id:
+        type: integer
+        label: Process ID
+        min: 1
+        max: 65535
+        example: "1"
+      router_id:
+        type: ipv4
+        label: Router ID
+        example: 1.1.1.1
+      network:
+        type: ipv4
+        label: Network address
+        example: 192.168.10.0
+      wildcard_mask:
+        type: ipv4_wildcard
+        label: Wildcard mask
+        example: 0.0.0.255
+      area:
+        type: integer
+        label: Area
+        description: Area number (0 is the backbone).
+        min: 0
+        max: 4294967295
+        example: "0"
+    template: |
+      router ospf {{process_id}}
+       router-id {{router_id}}
+       network {{network}} {{wildcard_mask}} area {{area}}
+    explanation:
+      - { line: "router-id {{router_id}}", text: "Fixes the router ID so it does not change when interfaces change." }
+      - { line: "network {{network}} {{wildcard_mask}} area {{area}}", text: "Enables OSPF on interfaces whose address matches, placing them in the area." }
+    expected_outcome: Adjacencies form with neighbours in the same area and subnet type.
+    verification_commands:
+      - show ip ospf neighbor
+      - show ip ospf interface brief
+      - show ip route ospf
+    rollback_notes: Remove with "no router ospf <id>" (removes the whole process).
+    warnings:
+      - Changing a router ID on a running process needs a process restart ("clear ip ospf process").
+    tags: [ospf, routing, dynamic routing]
+    related: [static-route, bgp-neighbor, routing-show]
+
+  - id: bgp-neighbor
+    title: Configure a BGP neighbour and advertise a network
+    category: bgp
+    task: configure_bgp
+    summary: Create a BGP process, a neighbour and a network statement.
+    difficulty: advanced
+    verification_status: unverified
+    platform_overrides:
+      ios-xe:
+        compatibility_note: "Partly checked against the Catalyst 9300 IOS XE 17.9.x 'Configuring BGP' chapter: 'router bgp', 'neighbor <ip> remote-as <as>' and 'network <net> [mask <mask>]' are documented. That chapter states AS numbers 1-65535, while this template accepts 4-byte AS numbers (up to 4294967295), which were not checked; whether IPv4 neighbours are active without an address-family statement was also not confirmed. Stays Unverified."
+    added_at: 2026-10-18
+    prerequisites:
+      - Layer-3 reachability to the neighbour address.
+      - The network being advertised must exist in the routing table with an exact match.
+    placeholders:
+      local_as:
+        type: integer
+        label: Local AS
+        min: 1
+        max: 4294967295
+        example: "65001"
+      neighbor_ip:
+        type: ipv4
+        label: Neighbour IP
+        example: 192.0.2.2
+      remote_as:
+        type: integer
+        label: Remote AS
+        min: 1
+        max: 4294967295
+        example: "65002"
+      network:
+        type: ipv4
+        label: Network to advertise
+        example: 198.51.100.0
+      subnet_mask:
+        type: ipv4_netmask
+        label: Network mask
+        example: 255.255.255.0
+    template: |
+      router bgp {{local_as}}
+       neighbor {{neighbor_ip}} remote-as {{remote_as}}
+       network {{network}} mask {{subnet_mask}}
+    explanation:
+      - { line: "neighbor {{neighbor_ip}} remote-as {{remote_as}}", text: "Defines the peer. A different AS number makes it an eBGP session." }
+      - { line: "network {{network}} mask {{subnet_mask}}", text: "Originates the prefix if an exact route exists locally." }
+    expected_outcome: The session reaches Established and the prefix is advertised.
+    verification_commands:
+      - show ip bgp summary
+      - show ip bgp neighbors {{neighbor_ip}}
+    rollback_notes: Remove with "no neighbor <ip>" and "no network ..." or "no router bgp <as>".
+    warnings:
+      - Without inbound/outbound filtering a BGP peer can advertise or receive unwanted prefixes. Add route policy before using with an external peer.
+      - Authentication (MD5/TCP-AO) is not included to avoid embedding secrets in generated text.
+    tags: [bgp, ebgp, routing]
+    related: [ospf-basic, routing-show]
+
+  - id: acl-extended-tcp
+    title: Extended named ACL permitting TCP to a host, applied inbound
+    category: acl
+    task: configure_acl
+    summary: Create an extended ACL that permits one TCP service to a host and apply it to an interface.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Understand that applying an ACL adds an implicit "deny ip any any" at the end.
+      - Have console or out-of-band access in case you block your own session.
+    placeholders:
+      acl_name:
+        type: string
+        label: ACL name
+        pattern: '^[A-Za-z][A-Za-z0-9_\-]{0,30}$'
+        max_length: 31
+        example: ALLOW-SSH
+      source_network:
+        type: ipv4
+        label: Source network
+        example: 10.0.0.0
+      source_wildcard:
+        type: ipv4_wildcard
+        label: Source wildcard
+        example: 0.0.0.255
+      dest_host:
+        type: ipv4
+        label: Destination host
+        example: 192.168.1.10
+      port:
+        type: integer
+        label: TCP destination port
+        min: 1
+        max: 65535
+        example: "22"
+      interface:
+        type: string
+        label: Interface to apply on
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){0,3}$'
+        max_length: 40
+        example: GigabitEthernet0/0/1
+    template: |
+      ip access-list extended {{acl_name}}
+       permit tcp {{source_network}} {{source_wildcard}} host {{dest_host}} eq {{port}}
+      !
+      interface {{interface}}
+       ip access-group {{acl_name}} in
+    explanation:
+      - { line: "permit tcp ... eq {{port}}", text: "Matches TCP traffic from the source range to the host and port." }
+      - { line: "ip access-group {{acl_name}} in", text: "Filters traffic entering the interface." }
+    expected_outcome: Only the permitted traffic is accepted inbound on the interface; everything else is dropped.
+    verification_commands:
+      - show access-lists {{acl_name}}
+      - show ip interface {{interface}}
+    rollback_notes: Remove with "no ip access-group <acl-name> in" on the interface first, then delete the ACL.
+    warnings:
+      - Applying this will block ALL other inbound traffic on that interface, including routing protocols and management.
+    tags: [acl, filtering, security]
+    related: [nat-overload]
+
+  - id: nat-overload
+    title: NAT overload (PAT) to an outside interface
+    category: nat
+    task: configure_pat
+    summary: Translate an inside network to the outside interface address.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Inside and outside interfaces already have IP addresses.
+      - Standard ACL number must not already be used.
+    placeholders:
+      acl_number:
+        type: integer
+        label: Standard ACL number
+        min: 1
+        max: 99
+        example: "10"
+      inside_network:
+        type: ipv4
+        label: Inside network
+        example: 192.168.10.0
+      wildcard_mask:
+        type: ipv4_wildcard
+        label: Wildcard mask
+        example: 0.0.0.255
+      inside_interface:
+        type: string
+        label: Inside interface
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){0,3}(\.[0-9]+)?$'
+        max_length: 40
+        example: GigabitEthernet0/0/0
+      outside_interface:
+        type: string
+        label: Outside interface
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){0,3}(\.[0-9]+)?$'
+        max_length: 40
+        example: GigabitEthernet0/0/1
+    template: |
+      access-list {{acl_number}} permit {{inside_network}} {{wildcard_mask}}
+      ip nat inside source list {{acl_number}} interface {{outside_interface}} overload
+      !
+      interface {{inside_interface}}
+       ip nat inside
+      !
+      interface {{outside_interface}}
+       ip nat outside
+    explanation:
+      - { line: "access-list ... permit", text: "Selects which inside addresses are translated." }
+      - { line: "ip nat inside source list ... overload", text: "Translates selected sources to the outside interface address using port translation." }
+    expected_outcome: Inside hosts reach external networks using the outside interface address.
+    verification_commands:
+      - show ip nat translations
+      - show ip nat statistics
+    rollback_notes: Remove the "ip nat inside source" line and the inside/outside interface commands.
+    warnings:
+      - Marking the wrong interface as inside/outside breaks traffic on that interface.
+    tags: [nat, pat, overload]
+    related: [acl-extended-tcp, static-route]
+
+  - id: dhcp-pool
+    title: Create a DHCP server pool
+    category: dhcp
+    task: configure_dhcp_pool
+    summary: Create a DHCP pool with gateway and DNS, and exclude a range of addresses.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - The device has an interface in the pool's subnet.
+      - No other DHCP server serves this subnet.
+    placeholders:
+      excluded_start:
+        type: ipv4
+        label: Excluded range start
+        example: 192.168.10.1
+      excluded_end:
+        type: ipv4
+        label: Excluded range end
+        example: 192.168.10.20
+      pool_name:
+        type: string
+        label: Pool name
+        pattern: '^[A-Za-z][A-Za-z0-9_\-]{0,30}$'
+        max_length: 31
+        example: VLAN10-POOL
+      network:
+        type: ipv4
+        label: Network address
+        example: 192.168.10.0
+      subnet_mask:
+        type: ipv4_netmask
+        label: Subnet mask
+        example: 255.255.255.0
+      gateway:
+        type: ipv4
+        label: Default gateway
+        example: 192.168.10.1
+      dns_server:
+        type: ipv4
+        label: DNS server
+        example: 192.168.10.2
+    template: |
+      ip dhcp excluded-address {{excluded_start}} {{excluded_end}}
+      !
+      ip dhcp pool {{pool_name}}
+       network {{network}} {{subnet_mask}}
+       default-router {{gateway}}
+       dns-server {{dns_server}}
+    explanation:
+      - { line: "ip dhcp excluded-address", text: "Keeps these addresses out of the pool (gateway, servers, printers)." }
+      - { line: "network ... / default-router / dns-server", text: "Defines the subnet and the options handed to clients." }
+    expected_outcome: Clients in the subnet receive leases from the pool.
+    verification_commands:
+      - show ip dhcp pool {{pool_name}}
+      - show ip dhcp binding
+    rollback_notes: Remove with "no ip dhcp pool <name>" and "no ip dhcp excluded-address ...".
+    warnings:
+      - A second DHCP server in the same subnet (rogue or legitimate) can cause address conflicts.
+    tags: [dhcp, pool]
+    related: [svi-ip]
+
+  - id: ssh-access
+    title: Enable SSH version 2 on the VTY lines
+    category: management
+    task: configure_ssh
+    summary: Generate RSA keys, enable SSHv2 and restrict VTY access to SSH using local users.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - A local user with a strong secret already exists (create it separately; no credentials are generated here).
+      - Reachable management IP address.
+    placeholders:
+      hostname:
+        type: string
+        label: Hostname
+        pattern: '^[A-Za-z0-9][A-Za-z0-9\-]{0,62}$'
+        max_length: 63
+        example: SW-CORE-01
+      domain_name:
+        type: string
+        label: Domain name
+        pattern: '^[A-Za-z0-9][A-Za-z0-9.\-]{1,60}$'
+        max_length: 61
+        example: lab.example
+    template: |
+      hostname {{hostname}}
+      ip domain-name {{domain_name}}
+      crypto key generate rsa modulus 2048
+      ip ssh version 2
+      line vty 0 4
+       transport input ssh
+       login local
+    explanation:
+      - { line: "ip domain-name", text: "The RSA key name is built from hostname and domain name." }
+      - { line: "crypto key generate rsa modulus 2048", text: "Creates the host key used by SSH." }
+      - { line: "transport input ssh", text: "Disables Telnet on the VTY lines." }
+      - { line: "login local", text: "Authenticates against the local user database." }
+    expected_outcome: SSH sessions succeed with a local account; Telnet is refused.
+    verification_commands:
+      - show ip ssh
+      - show ssh
+    rollback_notes: Restore the previous "transport input" setting. Keep console access available.
+    warnings:
+      - If no local user exists, "login local" will lock you out of remote access.
+      - Some devices have more VTY lines (for example 0 15); extend the range if required.
+      - If keys already exist the device may prompt before replacing them.
+    tags: [ssh, management, vty, security]
+    related: [hostname-basics]
+
+  - id: ntp-server
+    title: Configure an NTP server
+    category: time-logging
+    task: configure_ntp
+    summary: Synchronise the device clock with an NTP server.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - The NTP server is reachable (UDP 123 not blocked).
+    placeholders:
+      ntp_server:
+        type: ipv4
+        label: NTP server address
+        example: 192.0.2.123
+    template: |
+      ntp server {{ntp_server}}
+    explanation:
+      - { line: "ntp server {{ntp_server}}", text: "Sets the time source." }
+    expected_outcome: The clock becomes synchronised after several minutes.
+    verification_commands:
+      - show ntp status
+      - show ntp associations
+    rollback_notes: "Remove with \"no ntp server <ip>\"."
+    warnings:
+      - Time-sensitive features (certificates, logs) misbehave if the clock is wrong.
+    tags: [ntp, time]
+    related: [syslog-host]
+
+  - id: syslog-host
+    title: Send logs to a syslog server
+    category: time-logging
+    task: configure_syslog
+    summary: Forward device logs to a remote syslog host and add millisecond timestamps.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - The syslog server accepts UDP 514 from this device.
+    placeholders:
+      syslog_host:
+        type: ipv4
+        label: Syslog server address
+        example: 192.0.2.50
+    template: |
+      service timestamps log datetime msec
+      logging host {{syslog_host}}
+    explanation:
+      - { line: "service timestamps log datetime msec", text: "Adds precise timestamps to messages." }
+      - { line: "logging host {{syslog_host}}", text: "Sends messages to the remote server." }
+    expected_outcome: Log messages arrive at the syslog server.
+    verification_commands:
+      - show logging
+    rollback_notes: "Remove with \"no logging host <ip>\"."
+    warnings:
+      - Syslog is unencrypted by default; do not send it across untrusted networks.
+    tags: [syslog, logging]
+    related: [ntp-server]
+
+  - id: stp-root-priority
+    title: Set the Rapid-PVST+ priority for a VLAN
+    category: stp
+    task: configure_stp
+    summary: Enable Rapid PVST+ and set the bridge priority for a VLAN.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Know the intended root bridge in the topology.
+    placeholders:
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 1
+        max: 4094
+        example: "10"
+      priority:
+        type: integer
+        label: Bridge priority
+        description: Multiple of 4096; lower is preferred (4096 is typically used for the root).
+        min: 0
+        max: 61440
+        multiple_of: 4096
+        example: "4096"
+    template: |
+      spanning-tree mode rapid-pvst
+      spanning-tree vlan {{vlan_id}} priority {{priority}}
+    explanation:
+      - { line: "spanning-tree mode rapid-pvst", text: "Selects Rapid PVST+. Changing mode can briefly disrupt the network." }
+      - { line: "spanning-tree vlan {{vlan_id}} priority {{priority}}", text: "Sets how likely this switch is to become root for that VLAN." }
+    expected_outcome: The switch becomes root for the VLAN if its priority is the lowest.
+    verification_commands:
+      - show spanning-tree vlan {{vlan_id}}
+      - show spanning-tree summary
+    rollback_notes: Set the priority back to the default (32768 plus VLAN ID) or use "no spanning-tree vlan <id> priority".
+    warnings:
+      - Changing the root bridge changes traffic paths network-wide. Plan this change.
+    tags: [stp, rapid-pvst, root bridge]
+    related: [trunk-port]
+
+  - id: save-config
+    title: Save the running configuration
+    category: save-verify
+    task: save_config
+    kind: operational
+    summary: Copy the running configuration to the startup configuration.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Verify that the running configuration is what you want to keep.
+    template: |
+      copy running-config startup-config
+    explanation:
+      - { line: "copy running-config startup-config", text: "Persists the active configuration so it survives a reload. \"write memory\" is an older equivalent." }
+    expected_outcome: The device reports that the file was built/saved.
+    verification_commands:
+      - show startup-config
+    rollback_notes: Keep a backup of the previous startup configuration before overwriting it.
+    warnings:
+      - Saving a faulty configuration makes the fault survive a reboot.
+    tags: [save, startup-config, write memory]
+    related: [config-backup-tftp]
+
+  - id: config-backup-tftp
+    title: Back up the running configuration to TFTP
+    category: backup
+    task: backup_config
+    kind: operational
+    summary: Copy the running configuration to a TFTP server.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - A TFTP server is reachable and accepts uploads.
+    placeholders:
+      tftp_server:
+        type: ipv4
+        label: TFTP server
+        example: 192.0.2.10
+      filename:
+        type: string
+        label: File name
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_.\-]{0,60}$'
+        max_length: 61
+        example: sw-core-01.cfg
+    template: |
+      copy running-config tftp://{{tftp_server}}/{{filename}}
+    explanation:
+      - { line: "copy running-config tftp://...", text: "Uploads the configuration text. TFTP is unencrypted - prefer SCP/SFTP where supported." }
+    expected_outcome: The file appears on the TFTP server.
+    verification_commands:
+      - show running-config | include hostname
+    rollback_notes: Restore with "copy tftp://<server>/<file> running-config" (this merges; it does not replace).
+    warnings:
+      - Configurations can contain secrets. Store the backup securely.
+    tags: [backup, tftp]
+    related: [save-config]
+
+  - id: interface-health-show
+    title: Check interface status and errors
+    category: troubleshooting
+    task: show_interface_errors
+    kind: show
+    summary: Read-only commands to review interface state, counters and error statistics.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){0,3}$'
+        max_length: 40
+        example: GigabitEthernet1/0/1
+    template: |
+      show interfaces status
+      show interfaces {{interface}}
+      show interfaces counters errors
+    explanation:
+      - { line: "show interfaces status", text: "Compact list of port state, VLAN, speed and duplex (switches)." }
+      - { line: "show interfaces counters errors", text: "CRC, alignment and other error counters per port (not available on all platforms)." }
+    expected_outcome: Read-only output; no configuration changes.
+    verification_commands: []
+    warnings:
+      - "'show interfaces status' and 'counters errors' are switch commands and may not exist on routers."
+    tags: [show, interface, errors, troubleshooting]
+    related: [routing-show]
+
+  - id: routing-show
+    title: Check routing table and protocols
+    category: troubleshooting
+    task: show_routing
+    kind: show
+    summary: Read-only commands to review routes and routing protocol neighbours.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    template: |
+      show ip route
+      show ip protocols
+      show ip ospf neighbor
+      show ip bgp summary
+    explanation:
+      - { line: "show ip route", text: "Lists the IPv4 routing table with the source code of each route." }
+      - { line: "show ip ospf neighbor / show ip bgp summary", text: "Only produce output if that protocol is configured." }
+    expected_outcome: Read-only output; no configuration changes.
+    verification_commands: []
+    tags: [show, routing, ospf, bgp, neighbor]
+    related: [ospf-basic, bgp-neighbor]

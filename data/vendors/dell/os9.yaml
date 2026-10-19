@@ -1,0 +1,431 @@
+# Dell Networking OS9 templates (formerly FTOS). All "unverified": not reviewed against Dell docs or lab-tested.
+# OS9 is NOT OS10 or OS6. Ports are added to VLANs from the VLAN interface (tagged / untagged).
+vendor: dell
+platforms: [os9]
+os_versions: []
+compatibility_note: >-
+  Written to common Dell Networking OS9 (FTOS) CLI conventions. Exact OS9 release and S/Z-Series model support has
+  NOT been verified. Do not use on OS10 or OS6 devices.
+templates:
+  - id: hostname-basics
+    title: Set the hostname
+    category: basics
+    task: set_hostname
+    summary: Set the device hostname.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Enter configuration mode with "configure".
+    placeholders:
+      hostname:
+        type: string
+        label: Hostname
+        pattern: '^[A-Za-z0-9][A-Za-z0-9\-]{0,62}$'
+        max_length: 63
+        example: OS9-TOR-01
+    template: |
+      hostname {{hostname}}
+    explanation:
+      - { line: "hostname {{hostname}}", text: "Sets the device name shown in the prompt." }
+    expected_outcome: The prompt shows the new hostname.
+    verification_commands:
+      - show running-config | grep hostname
+    rollback_notes: Re-enter the previous hostname.
+    tags: [hostname, basics]
+    related: []
+
+  - id: vlan-create
+    title: Create a VLAN
+    category: vlan
+    task: create_vlan
+    summary: Create a VLAN with a description.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 2
+        max: 4094
+        example: "10"
+      description:
+        type: string
+        label: Description
+        max_length: 60
+        example: USERS
+    template: |
+      interface vlan {{vlan_id}}
+       description {{description}}
+       no shutdown
+    explanation:
+      - { line: "interface vlan {{vlan_id}}", text: "Creates the VLAN. VLAN 1 is the default VLAN." }
+    expected_outcome: The VLAN is listed in "show vlan".
+    verification_commands:
+      - show vlan id {{vlan_id}}
+    rollback_notes: Use "no interface vlan <id>".
+    tags: [vlan]
+    related: [access-port, trunk-port]
+
+  - id: access-port
+    title: Add an untagged port to a VLAN
+    category: switchport
+    task: configure_access_port
+    summary: Put a port into layer-2 mode and add it untagged to a VLAN.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - The VLAN exists.
+    placeholders:
+      interface:
+        type: string
+        label: Interface
+        description: Type and slot, e.g. TenGigabitEthernet 1/5.
+        pattern: '^[A-Za-z]+ [0-9]+/[0-9]+(/[0-9]+)?$'
+        max_length: 40
+        example: TenGigabitEthernet 1/5
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 2
+        max: 4094
+        example: "10"
+    template: |
+      interface {{interface}}
+       no ip address
+       switchport
+       no shutdown
+      !
+      interface vlan {{vlan_id}}
+       untagged {{interface}}
+    explanation:
+      - { line: "switchport", text: "Puts the port in layer-2 mode." }
+      - { line: "untagged {{interface}}", text: "Adds the port to the VLAN without tags." }
+    expected_outcome: The port is an untagged member of the VLAN.
+    verification_commands:
+      - show vlan id {{vlan_id}}
+    rollback_notes: Remove with "no untagged <interface>" under the VLAN.
+    warnings:
+      - A port can be untagged in only one VLAN.
+    tags: [access, untagged]
+    related: [vlan-create]
+
+  - id: trunk-port
+    title: Add a tagged port to a VLAN
+    category: switchport
+    task: configure_trunk_port
+    summary: Put a port into layer-2 mode and add it tagged to a VLAN. Repeat for each VLAN.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z]+ [0-9]+/[0-9]+(/[0-9]+)?$'
+        max_length: 40
+        example: TenGigabitEthernet 1/48
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 2
+        max: 4094
+        example: "10"
+    template: |
+      interface {{interface}}
+       no ip address
+       switchport
+       no shutdown
+      !
+      interface vlan {{vlan_id}}
+       tagged {{interface}}
+    explanation:
+      - { line: "tagged {{interface}}", text: "OS9 has no trunk mode; a port is tagged in each VLAN it carries." }
+    expected_outcome: The port carries the VLAN tagged.
+    verification_commands:
+      - show vlan id {{vlan_id}}
+    rollback_notes: Remove with "no tagged <interface>" under the VLAN.
+    warnings:
+      - Changes on a live uplink can cut off traffic and management access.
+    tags: [tagged, trunk]
+    related: [vlan-create]
+
+  - id: lag-lacp
+    title: Create an LACP port-channel
+    category: lag
+    task: configure_lag
+    summary: Create a layer-2 port-channel and add one member with LACP. Repeat for each member.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      channel_group:
+        type: integer
+        label: Port-channel number
+        min: 1
+        max: 128
+        example: "1"
+      member:
+        type: string
+        label: Member interface
+        pattern: '^[A-Za-z]+ [0-9]+/[0-9]+(/[0-9]+)?$'
+        max_length: 40
+        example: TenGigabitEthernet 1/1
+      lacp_mode:
+        type: enum
+        label: LACP mode
+        options: [active, passive]
+        default: active
+    template: |
+      interface Port-channel {{channel_group}}
+       no ip address
+       switchport
+       no shutdown
+      !
+      interface {{member}}
+       no ip address
+       port-channel-protocol lacp
+        port-channel {{channel_group}} mode {{lacp_mode}}
+       no shutdown
+    explanation:
+      - { line: "port-channel-protocol lacp", text: "Enters LACP configuration for the member." }
+      - { line: "port-channel ... mode ...", text: "Joins the port-channel in the chosen LACP mode." }
+    expected_outcome: The LAG comes up when the peer matches.
+    verification_commands:
+      - show interfaces port-channel brief
+    rollback_notes: Remove with "no port-channel-protocol lacp" on members and "no interface Port-channel <n>".
+    warnings:
+      - Moving live links into a LAG causes a short outage.
+    tags: [lag, lacp, port-channel]
+    related: [trunk-port]
+
+  - id: svi-ip
+    title: Assign an IPv4 address to a VLAN interface
+    category: ip-addressing
+    task: configure_svi
+    summary: Give a VLAN a layer-3 gateway address.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 1
+        max: 4094
+        example: "10"
+      address:
+        type: ipv4_cidr
+        label: Address / prefix
+        example: 192.168.10.1/24
+    template: |
+      interface vlan {{vlan_id}}
+       ip address {{address}}
+       no shutdown
+    explanation:
+      - { line: "ip address {{address}}", text: "OS9 uses CIDR notation." }
+    expected_outcome: The VLAN interface has the address and is up.
+    verification_commands:
+      - show ip interface brief
+    rollback_notes: Use "no ip address".
+    warnings:
+      - The address must not overlap another interface.
+    tags: [svi, ip address]
+    related: [vlan-create, static-route]
+
+  - id: static-route
+    title: Add an IPv4 static route
+    category: static-routing
+    task: configure_static_route
+    summary: Add a static route using CIDR notation.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      prefix:
+        type: ipv4_cidr
+        label: Destination prefix
+        allow_host_bits: false
+        example: 10.20.0.0/16
+      next_hop:
+        type: ipv4
+        label: Next hop
+        example: 192.168.1.254
+    template: |
+      ip route {{prefix}} {{next_hop}}
+    explanation:
+      - { line: "ip route {{prefix}} {{next_hop}}", text: "Installs the static route." }
+    expected_outcome: The route is listed as static.
+    verification_commands:
+      - show ip route static
+    rollback_notes: Remove with "no ip route ...".
+    warnings:
+      - A wrong default route can break management connectivity.
+    tags: [static route, routing]
+    related: [svi-ip, ospf-basic]
+
+  - id: ospf-basic
+    title: Enable OSPF on a network
+    category: ospf
+    task: configure_ospf
+    summary: Create an OSPF process, set the router ID and advertise a network.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      process_id:
+        type: integer
+        label: Process ID
+        min: 1
+        max: 65535
+        example: "1"
+      router_id:
+        type: ipv4
+        label: Router ID
+        example: 1.1.1.1
+      network:
+        type: ipv4_cidr
+        label: Network
+        allow_host_bits: false
+        example: 192.168.10.0/24
+      area:
+        type: integer
+        label: Area
+        min: 0
+        max: 4294967295
+        example: "0"
+    template: |
+      router ospf {{process_id}}
+       router-id {{router_id}}
+       network {{network}} area {{area}}
+    explanation:
+      - { line: "network {{network}} area {{area}}", text: "OS9 takes a CIDR prefix here instead of a wildcard mask." }
+    expected_outcome: OSPF neighbours form on matching interfaces.
+    verification_commands:
+      - show ip ospf neighbor
+    rollback_notes: Remove with "no router ospf <id>".
+    tags: [ospf, routing]
+    related: [static-route]
+
+  - id: acl-extended-tcp
+    title: Extended ACL permitting TCP to a host, applied to a VLAN
+    category: acl
+    task: configure_acl
+    summary: Create an extended IPv4 ACL permitting one TCP service and apply it inbound.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Console access in case you block your own session.
+    placeholders:
+      acl_name:
+        type: string
+        label: ACL name
+        pattern: '^[A-Za-z][A-Za-z0-9_\-]{0,30}$'
+        max_length: 31
+        example: ALLOW-SSH
+      source:
+        type: ipv4_cidr
+        label: Source network
+        allow_host_bits: false
+        example: 10.0.0.0/24
+      dest_host:
+        type: ipv4
+        label: Destination host
+        example: 192.168.10.10
+      port:
+        type: integer
+        label: TCP port
+        min: 1
+        max: 65535
+        example: "22"
+      vlan_id:
+        type: integer
+        label: VLAN interface
+        min: 1
+        max: 4094
+        example: "10"
+    template: |
+      ip access-list extended {{acl_name}}
+       seq 5 permit tcp {{source}} host {{dest_host}} eq {{port}}
+      !
+      interface vlan {{vlan_id}}
+       ip access-group {{acl_name}} in
+    explanation:
+      - { line: "seq 5 permit tcp ...", text: "Permits the TCP service; other traffic hits the implicit deny." }
+    expected_outcome: Only matching traffic is accepted inbound.
+    verification_commands:
+      - show ip accounting access-list {{acl_name}}
+    rollback_notes: Remove the "ip access-group" line from the interface first.
+    warnings:
+      - The implicit deny blocks all other inbound traffic on the interface.
+    tags: [acl, filtering]
+    related: [svi-ip]
+
+  - id: ntp-server
+    title: Configure an NTP server
+    category: time-logging
+    task: configure_ntp
+    summary: Synchronise the device clock.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      ntp_server:
+        type: ipv4
+        label: NTP server
+        example: 192.0.2.123
+    template: |
+      ntp server {{ntp_server}}
+    explanation:
+      - { line: "ntp server {{ntp_server}}", text: "Sets the time source." }
+    expected_outcome: The clock synchronises after a few minutes.
+    verification_commands:
+      - show ntp associations
+    rollback_notes: Remove with "no ntp server <ip>".
+    tags: [ntp, time]
+    related: []
+
+  - id: save-config
+    title: Save the running configuration
+    category: save-verify
+    task: save_config
+    kind: operational
+    summary: Copy the running configuration to the startup configuration.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    template: |
+      copy running-config startup-config
+    explanation:
+      - { line: "copy running-config startup-config", text: "Persists the configuration. 'write memory' is an equivalent." }
+    expected_outcome: The configuration is persisted.
+    verification_commands:
+      - show startup-config
+    rollback_notes: Keep a backup of the previous startup configuration.
+    warnings:
+      - Saving a faulty configuration makes it persist after reload.
+    tags: [save, startup-config]
+    related: []
+
+  - id: health-show
+    title: Check interface and VLAN status
+    category: troubleshooting
+    task: show_interface_errors
+    kind: show
+    summary: Read-only commands to review interface status, VLANs and routes.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    template: |
+      show interfaces status
+      show vlan
+      show ip route
+    explanation:
+      - { line: "show interfaces status", text: "Brief state of each port." }
+    expected_outcome: Read-only output.
+    verification_commands: []
+    tags: [show, interface, errors, troubleshooting]
+    related: []

@@ -1,0 +1,54 @@
+- term: VLAN
+  aka: [Virtual LAN]
+  definition: A way to split one physical switch network into separate logical broadcast domains. Devices in different VLANs cannot talk directly at layer 2; traffic between them must be routed.
+- term: Access port
+  aka: [untagged port]
+  definition: A switch port that belongs to exactly one VLAN and sends and receives frames without VLAN tags. Typically used for end devices such as PCs and printers.
+- term: Trunk port
+  aka: [tagged port, 802.1Q trunk]
+  definition: A switch port that carries traffic for several VLANs at once by adding an 802.1Q tag to each frame. Used between switches, or between a switch and a router or firewall.
+- term: Link aggregation
+  aka: [LAG, EtherChannel, Port-Channel, Eth-Trunk, bonding]
+  definition: Bundling several physical links into one logical link for more bandwidth and redundancy. Vendors use different names (Cisco EtherChannel/Port-Channel, Dell LAG/Port-Channel, Huawei Eth-Trunk). LACP (IEEE 802.3ad/802.1AX) is the standard negotiation protocol.
+- term: STP
+  aka: [Spanning Tree Protocol, RSTP, PVST]
+  definition: A protocol that prevents layer-2 loops by blocking redundant paths. Variants include RSTP (faster convergence) and per-VLAN versions. The root bridge is chosen by the lowest priority value.
+- term: Static route
+  aka: [default route]
+  definition: A manually configured route to a destination network via a next hop or exit interface. A default route (0.0.0.0/0) matches any destination not matched by a more specific route.
+- term: OSPF
+  aka: [Open Shortest Path First]
+  definition: A link-state interior routing protocol. Routers in the same area exchange topology information and compute shortest paths. Area 0 is the backbone area.
+- term: BGP
+  aka: [Border Gateway Protocol, eBGP, iBGP]
+  definition: The routing protocol used between autonomous systems on the Internet and in large networks. A neighbour in a different AS is an eBGP peer; in the same AS it is an iBGP peer.
+- term: ACL
+  aka: [Access Control List]
+  definition: An ordered list of permit/deny rules used to filter traffic or select traffic for other features. Rules are matched top to bottom and a final implicit deny is common (verify on your platform).
+- term: NAT
+  aka: [PAT, overload, Easy IP]
+  definition: Network Address Translation rewrites IP addresses as traffic crosses a boundary, most commonly translating many private inside addresses to one public address (PAT / overload).
+- term: DHCP
+  aka: [Dynamic Host Configuration Protocol]
+  definition: A protocol that automatically gives clients an IP address, subnet mask, gateway and DNS server from a pool.
+- term: SSH
+  aka: [Secure Shell]
+  definition: An encrypted protocol for remote command-line management. It replaces Telnet, which sends credentials in clear text.
+- term: Configuration mode
+  aka: [config mode, system-view, global configuration]
+  definition: The CLI mode where changes are made. Cisco and Dell use "configure terminal"; Huawei uses "system-view"; FortiOS uses "config <path>" blocks that end with "end".
+- term: Running vs. startup configuration
+  aka: [commit, save, write memory]
+  definition: Most platforms apply changes to a running (active) configuration immediately; the change is lost after reboot unless saved to the startup/saved configuration. FortiOS applies and persists changes as each block is completed.
+- term: Rollback
+  aka: [revert, undo]
+  definition: Returning to a previous known-good configuration. Take a backup first and know your platform's rollback method before making a change.
+- term: SVI
+  aka: [VLAN interface, Vlanif, routed VLAN interface]
+  definition: A virtual layer-3 interface for a VLAN on a switch. It gives the VLAN an IP address so the switch can route traffic into and out of that VLAN.
+- term: Wildcard mask
+  aka: [inverse mask]
+  definition: A bit mask used by OSPF network statements and ACLs on Cisco and Huawei devices where 0 bits must match and 1 bits are ignored. The wildcard for 255.255.255.0 is 0.0.0.255.
+- term: Change control
+  aka: [change management]
+  definition: The process an organisation uses to review, approve, schedule and document network changes. Generated configuration must go through it before being used in production.

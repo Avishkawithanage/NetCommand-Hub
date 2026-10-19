@@ -1,0 +1,302 @@
+# Dell Networking OS6 templates (N-Series / PowerConnect-era). All "unverified": not reviewed against Dell docs or lab-tested.
+# OS6 is NOT OS9 or OS10. Syntax also differs between OS6 generations.
+vendor: dell
+platforms: [os6]
+os_versions: []
+compatibility_note: >-
+  Written to common Dell Networking OS6 (N-Series) CLI conventions. Exact OS6 release and model support has NOT been
+  verified, and older PowerConnect models use different interface naming. Do not use on OS9 or OS10 devices.
+templates:
+  - id: hostname-basics
+    title: Set the hostname
+    category: basics
+    task: set_hostname
+    summary: Set the device hostname.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Enter configuration mode with "configure".
+    placeholders:
+      hostname:
+        type: string
+        label: Hostname
+        pattern: '^[A-Za-z0-9][A-Za-z0-9\-]{0,62}$'
+        max_length: 63
+        example: OS6-SW-01
+    template: |
+      hostname {{hostname}}
+    explanation:
+      - { line: "hostname {{hostname}}", text: "Sets the device name shown in the prompt." }
+    expected_outcome: The prompt shows the new hostname.
+    verification_commands:
+      - show running-config
+    rollback_notes: Re-enter the previous hostname.
+    tags: [hostname, basics]
+    related: []
+
+  - id: vlan-create
+    title: Create a VLAN
+    category: vlan
+    task: create_vlan
+    summary: Create a VLAN in the VLAN database and name it.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 2
+        max: 4093
+        example: "10"
+      vlan_name:
+        type: string
+        label: VLAN name
+        pattern: '^[A-Za-z0-9_\-]{1,32}$'
+        max_length: 32
+        example: USERS
+    template: |
+      vlan database
+       vlan {{vlan_id}}
+       exit
+      interface vlan {{vlan_id}}
+       name {{vlan_name}}
+       exit
+    explanation:
+      - { line: "vlan database / vlan {{vlan_id}}", text: "OS6 creates VLANs in a dedicated VLAN database mode." }
+      - { line: "interface vlan {{vlan_id}} / name", text: "Names the VLAN." }
+    expected_outcome: The VLAN is listed in "show vlan".
+    verification_commands:
+      - show vlan id {{vlan_id}}
+    rollback_notes: Use "no vlan <id>" in VLAN database mode after removing it from ports.
+    warnings:
+      - Newer OS6 releases may accept "vlan <id>" directly in configuration mode; check your release.
+    tags: [vlan]
+    related: [access-port, trunk-port]
+
+  - id: access-port
+    title: Configure an access port in a VLAN
+    category: switchport
+    task: configure_access_port
+    summary: Set an interface as an access port in a VLAN.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      interface:
+        type: string
+        label: Interface
+        description: Type and unit/slot/port, e.g. gigabitethernet 1/0/5.
+        pattern: '^[A-Za-z]+ [0-9]+/[0-9]+/[0-9]+$'
+        max_length: 40
+        example: gigabitethernet 1/0/5
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 1
+        max: 4093
+        example: "10"
+    template: |
+      interface {{interface}}
+       switchport mode access
+       switchport access vlan {{vlan_id}}
+       exit
+    explanation:
+      - { line: "switchport access vlan {{vlan_id}}", text: "Places the port in the VLAN." }
+    expected_outcome: The port is an access member of the VLAN.
+    verification_commands:
+      - show interfaces switchport {{interface}}
+    rollback_notes: Restore the previous VLAN assignment.
+    warnings:
+      - Changing a live port interrupts the connected device.
+    tags: [access, switchport]
+    related: [vlan-create]
+
+  - id: trunk-port
+    title: Configure a trunk port
+    category: switchport
+    task: configure_trunk_port
+    summary: Set an interface as a trunk and add VLANs to it.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z]+ [0-9]+/[0-9]+/[0-9]+$'
+        max_length: 40
+        example: gigabitethernet 1/0/48
+      allowed_vlans:
+        type: vlan_list
+        label: VLANs to allow
+        example: 10,20,30-40
+    template: |
+      interface {{interface}}
+       switchport mode trunk
+       switchport trunk allowed vlan add {{allowed_vlans}}
+       exit
+    explanation:
+      - { line: "switchport trunk allowed vlan add ...", text: "Adds the VLANs to the allowed list without removing existing ones." }
+    expected_outcome: The listed VLANs are carried tagged.
+    verification_commands:
+      - show interfaces switchport {{interface}}
+    rollback_notes: Use "switchport trunk allowed vlan remove <list>".
+    warnings:
+      - Changes on a live uplink can cut off traffic and management access.
+    tags: [trunk, 802.1q]
+    related: [vlan-create, lag-lacp]
+
+  - id: lag-lacp
+    title: Create an LACP port-channel
+    category: lag
+    task: configure_lag
+    summary: Add a member interface to an LACP port-channel. Repeat for each member.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      member:
+        type: string
+        label: Member interface
+        pattern: '^[A-Za-z]+ [0-9]+/[0-9]+/[0-9]+$'
+        max_length: 40
+        example: gigabitethernet 1/0/1
+      channel_group:
+        type: integer
+        label: Port-channel number
+        min: 1
+        max: 128
+        example: "1"
+    template: |
+      interface {{member}}
+       channel-group {{channel_group}} mode active
+       exit
+    explanation:
+      - { line: "channel-group {{channel_group}} mode active", text: "Adds the port to the LAG and runs LACP." }
+    expected_outcome: The LAG forms when the peer matches.
+    verification_commands:
+      - show interfaces port-channel {{channel_group}}
+    rollback_notes: Remove with "no channel-group" on members.
+    warnings:
+      - Moving live links into a LAG causes a short outage.
+      - Some releases use a different mode keyword (for example "auto"); check your release.
+    tags: [lag, lacp, port-channel]
+    related: [trunk-port]
+
+  - id: svi-ip
+    title: Assign an IPv4 address to a VLAN interface
+    category: ip-addressing
+    task: configure_svi
+    summary: Give a VLAN a layer-3 gateway address.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Routing is enabled on the switch (ip routing).
+    placeholders:
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 1
+        max: 4093
+        example: "10"
+      ip_address:
+        type: ipv4
+        label: IPv4 address
+        example: 192.168.10.1
+      subnet_mask:
+        type: ipv4_netmask
+        label: Subnet mask
+        example: 255.255.255.0
+    template: |
+      interface vlan {{vlan_id}}
+       ip address {{ip_address}} {{subnet_mask}}
+       exit
+    explanation:
+      - { line: "ip address {{ip_address}} {{subnet_mask}}", text: "OS6 uses dotted masks." }
+    expected_outcome: The VLAN interface has the address.
+    verification_commands:
+      - show ip interface vlan {{vlan_id}}
+    rollback_notes: Use "no ip address".
+    warnings:
+      - The address must not overlap another interface.
+    tags: [svi, ip address]
+    related: [vlan-create, static-route]
+
+  - id: static-route
+    title: Add an IPv4 static route
+    category: static-routing
+    task: configure_static_route
+    summary: Add a static route with a dotted mask.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      dest_network:
+        type: ipv4
+        label: Destination network
+        example: 10.20.0.0
+      subnet_mask:
+        type: ipv4_netmask
+        label: Destination mask
+        example: 255.255.0.0
+      next_hop:
+        type: ipv4
+        label: Next hop
+        example: 192.168.1.254
+    template: |
+      ip route {{dest_network}} {{subnet_mask}} {{next_hop}}
+    explanation:
+      - { line: "ip route ...", text: "Installs the static route." }
+    expected_outcome: The route is listed as static.
+    verification_commands:
+      - show ip route
+    rollback_notes: Remove with "no ip route ...".
+    warnings:
+      - A wrong default route can break management connectivity.
+    tags: [static route, routing]
+    related: [svi-ip]
+
+  - id: save-config
+    title: Save the running configuration
+    category: save-verify
+    task: save_config
+    kind: operational
+    summary: Copy the running configuration to the startup configuration.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    template: |
+      copy running-config startup-config
+    explanation:
+      - { line: "copy running-config startup-config", text: "Persists the configuration; the device may ask for confirmation." }
+    expected_outcome: The configuration is persisted.
+    verification_commands:
+      - show startup-config
+    rollback_notes: Keep a backup of the previous startup configuration.
+    warnings:
+      - Saving a faulty configuration makes it persist after reload.
+    tags: [save, startup-config]
+    related: []
+
+  - id: health-show
+    title: Check interface and VLAN status
+    category: troubleshooting
+    task: show_interface_errors
+    kind: show
+    summary: Read-only commands to review ports, VLANs and routes.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    template: |
+      show interfaces status
+      show vlan
+      show ip route
+    explanation:
+      - { line: "show interfaces status", text: "Brief state of each port." }
+    expected_outcome: Read-only output.
+    verification_commands: []
+    tags: [show, interface, errors, troubleshooting]
+    related: []

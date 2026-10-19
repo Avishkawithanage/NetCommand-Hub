@@ -1,0 +1,881 @@
+# FortiGate / FortiOS templates. All "unverified": not reviewed against Fortinet documentation or lab-tested.
+# FortiOS CLI syntax varies by firmware version and FortiGate model; some settings are only available in some versions.
+vendor: fortinet
+platforms: [fortios]
+os_versions: []
+compatibility_note: >-
+  Written to common FortiOS 7.x CLI conventions. Exact firmware version and FortiGate model support has NOT been
+  verified; option names and defaults change between releases. Verify on your unit (for example with "show full-configuration").
+templates:
+  - id: hostname-basics
+    title: Set the hostname
+    category: basics
+    task: set_hostname
+    summary: Set the FortiGate hostname.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      hostname:
+        type: string
+        label: Hostname
+        pattern: '^[A-Za-z0-9][A-Za-z0-9\-_]{0,34}$'
+        max_length: 35
+        example: FGT-HQ-01
+    template: |
+      config system global
+          set hostname "{{hostname}}"
+      end
+    explanation:
+      - { line: "config system global", text: "Opens the global system settings." }
+      - { line: "end", text: "Applies and saves the block." }
+    expected_outcome: The prompt shows the new hostname.
+    verification_commands:
+      - get system status
+    rollback_notes: Set the previous hostname.
+    tags: [hostname, basics]
+    related: []
+
+  - id: interface-static-ip
+    title: Set a static IPv4 address on an interface
+    category: interface
+    task: configure_interface_ip
+    summary: Assign a static IPv4 address and mask to a physical interface.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Confirm the interface name with "show system interface".
+    placeholders:
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z0-9_.\-]{1,15}$'
+        max_length: 15
+        example: port2
+      ip_address:
+        type: ipv4
+        label: IPv4 address
+        example: 192.168.10.1
+      subnet_mask:
+        type: ipv4_netmask
+        label: Subnet mask
+        example: 255.255.255.0
+    template: |
+      config system interface
+          edit "{{interface}}"
+              set mode static
+              set ip {{ip_address}} {{subnet_mask}}
+          next
+      end
+    explanation:
+      - { line: "edit \"{{interface}}\"", text: "Selects the interface." }
+      - { line: "set ip ...", text: "Assigns the address and mask." }
+      - { line: "next / end", text: "Closes the entry and applies it." }
+    expected_outcome: The interface has the address.
+    verification_commands:
+      - get system interface physical
+      - show system interface {{interface}}
+    rollback_notes: Set the previous address.
+    warnings:
+      - Changing the address of the interface you are managing the unit through will drop your session.
+    tags: [interface, ip address]
+    related: [vlan-interface, static-route]
+
+  - id: vlan-interface
+    title: Create a VLAN interface
+    category: interface
+    task: configure_vlan_interface
+    summary: Create an 802.1Q VLAN sub-interface with an IPv4 address.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - The parent interface exists and is not part of a hardware switch.
+    placeholders:
+      vlan_name:
+        type: string
+        label: VLAN interface name
+        pattern: '^[A-Za-z0-9_\-]{1,15}$'
+        max_length: 15
+        example: vlan10
+      parent_interface:
+        type: string
+        label: Parent interface
+        pattern: '^[A-Za-z0-9_.\-]{1,15}$'
+        max_length: 15
+        example: port2
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 1
+        max: 4094
+        example: "10"
+      ip_address:
+        type: ipv4
+        label: IPv4 address
+        example: 192.168.10.1
+      subnet_mask:
+        type: ipv4_netmask
+        label: Subnet mask
+        example: 255.255.255.0
+    template: |
+      config system interface
+          edit "{{vlan_name}}"
+              set vdom "root"
+              set interface "{{parent_interface}}"
+              set vlanid {{vlan_id}}
+              set ip {{ip_address}} {{subnet_mask}}
+          next
+      end
+    explanation:
+      - { line: "set interface \"{{parent_interface}}\"", text: "Attaches the VLAN to the parent port." }
+      - { line: "set vlanid {{vlan_id}}", text: "Sets the 802.1Q tag." }
+    expected_outcome: The VLAN interface exists with the address.
+    verification_commands:
+      - show system interface {{vlan_name}}
+    rollback_notes: Delete with "config system interface / delete <name> / end" after removing references.
+    warnings:
+      - The interface may be in the "root" VDOM only; change it if you use multiple VDOMs.
+    tags: [vlan, interface]
+    related: [interface-static-ip, firewall-policy]
+
+  - id: static-route
+    title: Add an IPv4 static route
+    category: static-routing
+    task: configure_static_route
+    summary: Add a static route through a gateway and interface.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      route_id:
+        type: integer
+        label: Route sequence ID
+        description: Unique ID; use an unused number.
+        min: 1
+        max: 4294967295
+        example: "10"
+      dest_network:
+        type: ipv4
+        label: Destination network
+        description: Use 0.0.0.0 with mask 0.0.0.0 for a default route.
+        example: 10.20.0.0
+      subnet_mask:
+        type: ipv4_netmask
+        label: Destination mask
+        example: 255.255.0.0
+      gateway:
+        type: ipv4
+        label: Gateway
+        example: 192.168.1.254
+      interface:
+        type: string
+        label: Outgoing interface
+        pattern: '^[A-Za-z0-9_.\-]{1,15}$'
+        max_length: 15
+        example: wan1
+    template: |
+      config router static
+          edit {{route_id}}
+              set dst {{dest_network}} {{subnet_mask}}
+              set gateway {{gateway}}
+              set device "{{interface}}"
+          next
+      end
+    explanation:
+      - { line: "edit {{route_id}}", text: "Creates (or edits) the route with this ID. An existing ID is overwritten." }
+    expected_outcome: The route appears in the routing table.
+    verification_commands:
+      - get router info routing-table static
+    rollback_notes: Delete with "config router static / delete <id> / end".
+    warnings:
+      - Reusing an existing route ID edits that route.
+      - A wrong default route can cut off management and Internet access.
+    tags: [static route, default route, routing]
+    related: [interface-static-ip, routing-show]
+
+  - id: address-object
+    title: Create a subnet address object
+    category: objects
+    task: create_address_object
+    summary: Create a named IPv4 subnet object for use in policies.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      name:
+        type: string
+        label: Object name
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_\-]{0,34}$'
+        max_length: 35
+        example: LAN-10
+      network:
+        type: ipv4
+        label: Network
+        example: 192.168.10.0
+      subnet_mask:
+        type: ipv4_netmask
+        label: Subnet mask
+        example: 255.255.255.0
+    template: |
+      config firewall address
+          edit "{{name}}"
+              set subnet {{network}} {{subnet_mask}}
+          next
+      end
+    explanation:
+      - { line: "set subnet ...", text: "Defines the object as an IPv4 subnet." }
+    expected_outcome: The object can be selected in firewall policies.
+    verification_commands:
+      - show firewall address {{name}}
+    rollback_notes: Delete with "config firewall address / delete <name> / end" (must not be in use).
+    tags: [address object, firewall]
+    related: [service-object, firewall-policy]
+
+  - id: service-object
+    title: Create a custom TCP service object
+    category: objects
+    task: create_service_object
+    summary: Create a named service object for a TCP port or range.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      name:
+        type: string
+        label: Service name
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_\-]{0,34}$'
+        max_length: 35
+        example: APP-8443
+      port:
+        type: integer
+        label: TCP port
+        min: 1
+        max: 65535
+        example: "8443"
+    template: |
+      config firewall service custom
+          edit "{{name}}"
+              set tcp-portrange {{port}}
+          next
+      end
+    explanation:
+      - { line: "set tcp-portrange {{port}}", text: "Sets the TCP destination port for the service." }
+    expected_outcome: The service can be selected in firewall policies.
+    verification_commands:
+      - show firewall service custom {{name}}
+    rollback_notes: Delete with "config firewall service custom / delete <name> / end" (must not be in use).
+    tags: [service object, firewall]
+    related: [address-object, firewall-policy]
+
+  - id: firewall-policy
+    title: Create an accept policy with logging
+    category: firewall-policy
+    task: configure_firewall_policy
+    summary: Create an IPv4 firewall policy that accepts one service between two interfaces, with optional NAT.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - The interfaces, address objects and service object already exist.
+      - Understand that policies are evaluated top to bottom; new policies are placed at the end.
+    placeholders:
+      policy_id:
+        type: integer
+        label: Policy ID
+        min: 1
+        max: 4294967294
+        example: "100"
+      policy_name:
+        type: string
+        label: Policy name
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_\-]{0,34}$'
+        max_length: 35
+        example: LAN-to-WAN-web
+      src_interface:
+        type: string
+        label: Incoming interface
+        pattern: '^[A-Za-z0-9_.\-]{1,15}$'
+        max_length: 15
+        example: port2
+      dst_interface:
+        type: string
+        label: Outgoing interface
+        pattern: '^[A-Za-z0-9_.\-]{1,15}$'
+        max_length: 15
+        example: wan1
+      src_address:
+        type: string
+        label: Source address object
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_\-]{0,34}$'
+        max_length: 35
+        example: LAN-10
+      dst_address:
+        type: string
+        label: Destination address object
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_\-]{0,34}$'
+        max_length: 35
+        example: all
+      service:
+        type: string
+        label: Service object
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_\-]{0,34}$'
+        max_length: 35
+        example: HTTPS
+      nat:
+        type: enum
+        label: NAT
+        options: [enable, disable]
+        default: enable
+    template: |
+      config firewall policy
+          edit {{policy_id}}
+              set name "{{policy_name}}"
+              set srcintf "{{src_interface}}"
+              set dstintf "{{dst_interface}}"
+              set srcaddr "{{src_address}}"
+              set dstaddr "{{dst_address}}"
+              set action accept
+              set schedule "always"
+              set service "{{service}}"
+              set nat {{nat}}
+              set logtraffic all
+          next
+      end
+    explanation:
+      - { line: "set action accept", text: "Allows matching traffic." }
+      - { line: "set nat {{nat}}", text: "Source-NAT to the outgoing interface address when enabled." }
+      - { line: "set logtraffic all", text: "Logs all sessions that match." }
+    expected_outcome: Matching traffic is allowed and logged.
+    verification_commands:
+      - show firewall policy {{policy_id}}
+      - diagnose firewall iprope lookup
+    rollback_notes: Delete with "config firewall policy / delete <id> / end".
+    warnings:
+      - Using "all" as the destination and service creates a very broad rule. Use the narrowest objects that work.
+      - Reusing an existing policy ID edits that policy.
+      - Some firmware versions require "set inspection-mode" or other options for your design.
+    tags: [firewall policy, nat, security]
+    related: [address-object, service-object, security-profiles]
+
+  - id: ip-pool-overload
+    title: Create an overload IP pool
+    category: nat
+    task: configure_ippool
+    summary: Create a source-NAT IP pool of type overload to use in policies.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      name:
+        type: string
+        label: Pool name
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_\-]{0,34}$'
+        max_length: 35
+        example: POOL-WAN
+      start_ip:
+        type: ipv4
+        label: Start IP
+        example: 203.0.113.10
+      end_ip:
+        type: ipv4
+        label: End IP
+        example: 203.0.113.10
+    template: |
+      config firewall ippool
+          edit "{{name}}"
+              set type overload
+              set startip {{start_ip}}
+              set endip {{end_ip}}
+          next
+      end
+    explanation:
+      - { line: "set type overload", text: "Many internal addresses share the pool using port translation." }
+    expected_outcome: The pool can be attached to a policy with "set ippool enable" and "set poolname".
+    verification_commands:
+      - show firewall ippool {{name}}
+    rollback_notes: Delete with "config firewall ippool / delete <name> / end".
+    warnings:
+      - The addresses must be routed to this FortiGate by your upstream provider.
+    tags: [nat, ip pool]
+    related: [firewall-policy]
+
+  - id: dhcp-server
+    title: Create a DHCP server on an interface
+    category: dhcp
+    task: configure_dhcp_server
+    summary: Enable a DHCP server with a single address range.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - The interface has a static address in the same subnet.
+    placeholders:
+      server_id:
+        type: integer
+        label: Server ID
+        min: 1
+        max: 4294967295
+        example: "1"
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z0-9_.\-]{1,15}$'
+        max_length: 15
+        example: port2
+      gateway:
+        type: ipv4
+        label: Default gateway
+        example: 192.168.10.1
+      subnet_mask:
+        type: ipv4_netmask
+        label: Subnet mask
+        example: 255.255.255.0
+      start_ip:
+        type: ipv4
+        label: Range start
+        example: 192.168.10.100
+      end_ip:
+        type: ipv4
+        label: Range end
+        example: 192.168.10.200
+    template: |
+      config system dhcp server
+          edit {{server_id}}
+              set interface "{{interface}}"
+              set default-gateway {{gateway}}
+              set netmask {{subnet_mask}}
+              set dns-service default
+              config ip-range
+                  edit 1
+                      set start-ip {{start_ip}}
+                      set end-ip {{end_ip}}
+                  next
+              end
+          next
+      end
+    explanation:
+      - { line: "set dns-service default", text: "Hands out the FortiGate's configured system DNS servers." }
+      - { line: "config ip-range", text: "Defines the address range." }
+    expected_outcome: Clients on the interface receive leases.
+    verification_commands:
+      - execute dhcp lease-list
+    rollback_notes: Delete with "config system dhcp server / delete <id> / end".
+    warnings:
+      - A second DHCP server in the same subnet can cause address conflicts.
+    tags: [dhcp]
+    related: [interface-static-ip]
+
+  - id: ipsec-site-to-site
+    title: IPsec site-to-site tunnel (IKEv2, interface mode)
+    category: vpn
+    task: configure_ipsec
+    summary: Create IKEv2 phase 1 and phase 2 definitions for a route-based site-to-site tunnel, without credentials.
+    difficulty: advanced
+    verification_status: unverified
+    added_at: 2026-10-18
+    compatibility_note: >-
+      Written to common FortiOS 7.x conventions. Proposal names and defaults change between releases and must match the
+      peer. Exact firmware support has NOT been verified.
+    prerequisites:
+      - The remote gateway is a static IP address and the peer is configured with matching proposals.
+      - You will set the authentication secret yourself on the phase 1 entry (see warnings); none is generated here.
+      - You still need static routes and firewall policies for the tunnel.
+    placeholders:
+      vpn_name:
+        type: string
+        label: Tunnel name
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_\-]{0,14}$'
+        max_length: 15
+        example: TO-BRANCH1
+      wan_interface:
+        type: string
+        label: WAN interface
+        pattern: '^[A-Za-z0-9_.\-]{1,15}$'
+        max_length: 15
+        example: wan1
+      remote_gateway:
+        type: ipv4
+        label: Remote gateway IP
+        example: 198.51.100.10
+      local_subnet:
+        type: ipv4
+        label: Local subnet
+        example: 192.168.10.0
+      local_mask:
+        type: ipv4_netmask
+        label: Local mask
+        example: 255.255.255.0
+      remote_subnet:
+        type: ipv4
+        label: Remote subnet
+        example: 192.168.20.0
+      remote_mask:
+        type: ipv4_netmask
+        label: Remote mask
+        example: 255.255.255.0
+    template: |
+      config vpn ipsec phase1-interface
+          edit "{{vpn_name}}"
+              set interface "{{wan_interface}}"
+              set ike-version 2
+              set remote-gw {{remote_gateway}}
+              set proposal aes256-sha256
+          next
+      end
+      config vpn ipsec phase2-interface
+          edit "{{vpn_name}}"
+              set phase1name "{{vpn_name}}"
+              set proposal aes256-sha256
+              set src-subnet {{local_subnet}} {{local_mask}}
+              set dst-subnet {{remote_subnet}} {{remote_mask}}
+          next
+      end
+    explanation:
+      - { line: "config vpn ipsec phase1-interface", text: "Defines the IKE gateway (peer, version, proposals)." }
+      - { line: "config vpn ipsec phase2-interface", text: "Defines the IPsec SA and protected subnets." }
+    expected_outcome: The tunnel interface exists; it will not authenticate until a secret is set on the phase 1 entry.
+    verification_commands:
+      - diagnose vpn ike gateway list name {{vpn_name}}
+      - get vpn ipsec tunnel summary
+    rollback_notes: Delete phase 2 first, then phase 1, after removing routes and policies that use the tunnel.
+    warnings:
+      - No pre-shared key or certificate is included. Set "set psksecret" on the phase 1 entry yourself; never store keys in shared files.
+      - The proposal must match the remote peer exactly.
+      - A tunnel does nothing without matching routes and firewall policies in both directions.
+    tags: [ipsec, vpn, ikev2, site-to-site]
+    related: [static-route, firewall-policy]
+
+  - id: sdwan-member
+    title: Enable SD-WAN and add a member
+    category: sdwan
+    task: configure_sdwan
+    summary: Enable SD-WAN and add a WAN interface as a member.
+    difficulty: advanced
+    verification_status: unverified
+    added_at: 2026-10-18
+    compatibility_note: >-
+      Written to the FortiOS 7.0+ "config system sdwan" structure. Earlier releases use "config system virtual-wan-link".
+      Exact firmware support has NOT been verified.
+    prerequisites:
+      - The interface is not already referenced by static routes or policies; FortiOS refuses to add referenced interfaces.
+    placeholders:
+      member_id:
+        type: integer
+        label: Member sequence
+        min: 1
+        max: 512
+        example: "1"
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z0-9_.\-]{1,15}$'
+        max_length: 15
+        example: wan1
+      gateway:
+        type: ipv4
+        label: Gateway
+        example: 203.0.113.1
+    template: |
+      config system sdwan
+          set status enable
+          config members
+              edit {{member_id}}
+                  set interface "{{interface}}"
+                  set gateway {{gateway}}
+              next
+          end
+      end
+    explanation:
+      - { line: "set status enable", text: "Turns SD-WAN on." }
+      - { line: "config members", text: "Adds a WAN link to the default SD-WAN zone." }
+    expected_outcome: The interface is an SD-WAN member and routes/policies reference the SD-WAN zone.
+    verification_commands:
+      - diagnose sys sdwan member
+    rollback_notes: Remove the member and set status disable; restore routes and policies that referenced the interface.
+    warnings:
+      - Enabling SD-WAN can change routing and policy behaviour. Plan and back up first.
+    tags: [sdwan, wan]
+    related: [static-route, firewall-policy]
+
+  - id: security-profiles
+    title: Enable security profiles on a policy
+    category: security-profiles
+    task: attach_security_profiles
+    summary: Turn on UTM inspection with named SSL inspection and antivirus profiles on an existing policy.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - The policy and the named profiles already exist and your licence covers the features.
+    placeholders:
+      policy_id:
+        type: integer
+        label: Existing policy ID
+        min: 1
+        max: 4294967294
+        example: "100"
+      ssl_profile:
+        type: string
+        label: SSL/SSH inspection profile
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_\-]{0,34}$'
+        max_length: 35
+        example: certificate-inspection
+      av_profile:
+        type: string
+        label: Antivirus profile
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_\-]{0,34}$'
+        max_length: 35
+        example: default
+    template: |
+      config firewall policy
+          edit {{policy_id}}
+              set utm-status enable
+              set ssl-ssh-profile "{{ssl_profile}}"
+              set av-profile "{{av_profile}}"
+          next
+      end
+    explanation:
+      - { line: "set utm-status enable", text: "Enables security inspection on the policy." }
+    expected_outcome: Traffic matching the policy is inspected by the profiles.
+    verification_commands:
+      - show firewall policy {{policy_id}}
+    rollback_notes: Set "utm-status disable" or unset the profiles.
+    warnings:
+      - Deep SSL inspection requires deploying the inspection CA to clients and can break some applications.
+      - Inspection increases CPU load.
+    tags: [utm, antivirus, ssl inspection, security profile]
+    related: [firewall-policy]
+
+  - id: admin-trusted-hosts
+    title: Restrict an administrator to trusted hosts
+    category: management
+    task: configure_trusted_hosts
+    summary: Limit where an existing administrator account can log in from.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - The administrator account already exists.
+      - You are connecting from an address inside the trusted subnet, or you have console access.
+    placeholders:
+      admin_name:
+        type: string
+        label: Administrator name
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_.\-]{0,34}$'
+        max_length: 35
+        example: admin
+      trusted_network:
+        type: ipv4
+        label: Trusted network
+        example: 192.168.10.0
+      subnet_mask:
+        type: ipv4_netmask
+        label: Mask
+        example: 255.255.255.0
+    template: |
+      config system admin
+          edit "{{admin_name}}"
+              set trusthost1 {{trusted_network}} {{subnet_mask}}
+          next
+      end
+    explanation:
+      - { line: "set trusthost1", text: "Only this network may log in as this administrator." }
+    expected_outcome: Logins for the account from other addresses are refused.
+    verification_commands:
+      - show system admin {{admin_name}}
+    rollback_notes: Set trusthost1 back to 0.0.0.0 0.0.0.0 using the console.
+    warnings:
+      - You can lock yourself out if your address is not inside the trusted network.
+    tags: [admin, trusted host, security]
+    related: [interface-allowaccess]
+
+  - id: interface-allowaccess
+    title: Set management access on an interface
+    category: management
+    task: configure_allowaccess
+    summary: Choose which management services respond on an interface (HTTPS, SSH, ping, SNMP).
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Prefer a dedicated management interface and never expose management to the Internet.
+    placeholders:
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z0-9_.\-]{1,15}$'
+        max_length: 15
+        example: mgmt
+      allow_access:
+        type: string
+        label: Allowed services
+        description: Space-separated list of ping, https, ssh, snmp, fgfm (insecure http/telnet are blocked).
+        pattern: '^(ping|https|ssh|snmp|fgfm)( (ping|https|ssh|snmp|fgfm)){0,4}$'
+        max_length: 40
+        example: ping https ssh
+    template: |
+      config system interface
+          edit "{{interface}}"
+              set allowaccess {{allow_access}}
+          next
+      end
+    explanation:
+      - { line: "set allowaccess {{allow_access}}", text: "REPLACES the previous list with exactly these services." }
+    expected_outcome: Only the listed management services respond on the interface.
+    verification_commands:
+      - show system interface {{interface}}
+    rollback_notes: Set the previous list.
+    warnings:
+      - This replaces the existing list. Removing the service you are connected with ends your session.
+    tags: [management, allowaccess, https, ssh]
+    related: [admin-trusted-hosts]
+
+  - id: syslog-server
+    title: Send logs to a syslog server
+    category: time-logging
+    task: configure_syslog
+    summary: Forward logs to a remote syslog server over UDP.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      server:
+        type: ipv4
+        label: Syslog server
+        example: 192.0.2.50
+      port:
+        type: integer
+        label: Port
+        min: 1
+        max: 65535
+        default: "514"
+        example: "514"
+    template: |
+      config log syslogd setting
+          set status enable
+          set server {{server}}
+          set port {{port}}
+      end
+    explanation:
+      - { line: "config log syslogd setting", text: "Configures the first syslog server." }
+    expected_outcome: Log messages arrive at the server.
+    verification_commands:
+      - show log syslogd setting
+    rollback_notes: Set "status disable".
+    warnings:
+      - Syslog over UDP is unencrypted.
+    tags: [syslog, logging]
+    related: [ntp-server]
+
+  - id: ntp-server
+    title: Configure a custom NTP server
+    category: time-logging
+    task: configure_ntp
+    summary: Synchronise the clock with a custom NTP server.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      ntp_server:
+        type: ipv4
+        label: NTP server
+        example: 192.0.2.123
+    template: |
+      config system ntp
+          set ntpsync enable
+          set type custom
+          config ntpserver
+              edit 1
+                  set server {{ntp_server}}
+              next
+          end
+      end
+    explanation:
+      - { line: "set type custom", text: "Uses the servers listed instead of FortiGuard servers." }
+    expected_outcome: The clock synchronises.
+    verification_commands:
+      - diagnose sys ntp status
+    rollback_notes: Set "type fortiguard".
+    tags: [ntp, time]
+    related: [syslog-server]
+
+  - id: config-backup
+    title: Back up the configuration to a TFTP server
+    category: backup
+    task: backup_config
+    kind: operational
+    summary: Upload the configuration file to a TFTP server.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - A TFTP server is reachable from the FortiGate.
+    placeholders:
+      filename:
+        type: string
+        label: File name
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_.\-]{0,60}$'
+        max_length: 61
+        example: fgt-hq-01.conf
+      tftp_server:
+        type: ipv4
+        label: TFTP server
+        example: 192.0.2.10
+    template: |
+      execute backup config tftp {{filename}} {{tftp_server}}
+    explanation:
+      - { line: "execute backup config tftp", text: "Exports the configuration. TFTP is unencrypted; prefer a protected transfer such as SCP or the GUI download." }
+    expected_outcome: The file appears on the server.
+    verification_commands: []
+    rollback_notes: Restore with "execute restore config tftp <file> <server>" (reboots the unit).
+    warnings:
+      - Backups can contain secrets. Store them securely.
+      - Restoring a configuration reboots the unit.
+    tags: [backup, tftp]
+    related: []
+
+  - id: routing-show
+    title: Check routing table and interfaces
+    category: troubleshooting
+    task: show_routing
+    kind: show
+    summary: Read-only commands to check routes, interfaces and system status.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    template: |
+      get system status
+      get router info routing-table all
+      get system interface physical
+    explanation:
+      - { line: "get router info routing-table all", text: "Shows the active routing table." }
+    expected_outcome: Read-only output.
+    verification_commands: []
+    tags: [show, routing, interface, troubleshooting, errors]
+    related: []
+
+  - id: connectivity-test
+    title: Ping and traceroute from the FortiGate
+    category: troubleshooting
+    task: test_connectivity
+    kind: show
+    summary: Test reachability from the unit itself.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      target:
+        type: ipv4
+        label: Target IP
+        example: 8.8.8.8
+    template: |
+      execute ping {{target}}
+      execute traceroute {{target}}
+    explanation:
+      - { line: "execute ping {{target}}", text: "Sends ICMP from the FortiGate; the source is chosen by routing." }
+    expected_outcome: Read-only diagnostics output.
+    verification_commands: []
+    tags: [ping, traceroute, troubleshooting]
+    related: []

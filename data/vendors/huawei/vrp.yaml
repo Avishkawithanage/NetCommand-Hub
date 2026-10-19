@@ -1,0 +1,704 @@
+# Huawei VRP templates. All "unverified": not reviewed against Huawei documentation or lab-tested.
+# VRP command names and availability vary by product line and VRP version.
+vendor: huawei
+platforms: [vrp]
+os_versions: []
+compatibility_note: >-
+  Written to common Huawei VRP CLI conventions for S-series switches and AR routers. Exact VRP version and product
+  support has NOT been verified; some commands differ between V100R, V200R and V600R releases or between switch and
+  router models.
+templates:
+  - id: hostname-basics
+    title: Set the system name
+    category: basics
+    task: set_hostname
+    summary: Set the device name.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Be in user view.
+    placeholders:
+      hostname:
+        type: string
+        label: System name
+        pattern: '^[A-Za-z0-9][A-Za-z0-9\-_]{0,62}$'
+        max_length: 63
+        example: HW-SW-01
+    template: |
+      system-view
+      sysname {{hostname}}
+      return
+    explanation:
+      - { line: "system-view", text: "Enters system view (configuration mode)." }
+      - { line: "sysname {{hostname}}", text: "Sets the device name used in the prompt." }
+      - { line: "return", text: "Returns to user view." }
+    expected_outcome: The prompt shows the new name.
+    verification_commands:
+      - display current-configuration | include sysname
+    rollback_notes: Re-enter the previous sysname.
+    tags: [sysname, hostname, basics]
+    related: []
+
+  - id: vlan-create
+    title: Create a VLAN
+    category: vlan
+    task: create_vlan
+    summary: Create a VLAN and name it.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 1
+        max: 4094
+        example: "10"
+      vlan_name:
+        type: string
+        label: VLAN name
+        pattern: '^[A-Za-z0-9_\-]{1,31}$'
+        max_length: 31
+        example: USERS
+    template: |
+      system-view
+      vlan {{vlan_id}}
+       name {{vlan_name}}
+      quit
+    explanation:
+      - { line: "vlan {{vlan_id}}", text: "Creates the VLAN and enters VLAN view." }
+      - { line: "name {{vlan_name}}", text: "Sets the VLAN name." }
+    expected_outcome: The VLAN is listed in "display vlan".
+    verification_commands:
+      - display vlan {{vlan_id}}
+    rollback_notes: Use "undo vlan <id>" after removing it from ports.
+    tags: [vlan]
+    related: [access-port, trunk-port]
+
+  - id: access-port
+    title: Configure an access port
+    category: switchport
+    task: configure_access_port
+    summary: Set a port as an access port in a VLAN.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - The VLAN exists.
+    placeholders:
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){1,3}$'
+        max_length: 40
+        example: GigabitEthernet0/0/5
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 1
+        max: 4094
+        example: "10"
+    template: |
+      system-view
+      interface {{interface}}
+       port link-type access
+       port default vlan {{vlan_id}}
+      quit
+    explanation:
+      - { line: "port link-type access", text: "Sets the port type to access." }
+      - { line: "port default vlan {{vlan_id}}", text: "Sets the VLAN for untagged traffic." }
+    expected_outcome: The port is an untagged member of the VLAN.
+    verification_commands:
+      - display vlan {{vlan_id}}
+      - display current-configuration interface {{interface}}
+    rollback_notes: Restore the previous link type and default VLAN.
+    warnings:
+      - Changing a live port interrupts the connected device.
+    tags: [access, vlan]
+    related: [vlan-create]
+
+  - id: trunk-port
+    title: Configure a trunk port
+    category: switchport
+    task: configure_trunk_port
+    summary: Set a port as a trunk allowing a list of VLANs.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){1,3}$'
+        max_length: 40
+        example: GigabitEthernet0/0/24
+      allowed_vlans:
+        type: vlan_list
+        label: Allowed VLANs
+        description: Enter IDs and ranges separated by commas; they are rendered in VRP form (10 20 30 to 40).
+        output_style: space-to
+        example: 10,20,30-40
+    template: |
+      system-view
+      interface {{interface}}
+       port link-type trunk
+       port trunk allow-pass vlan {{allowed_vlans}}
+      quit
+    explanation:
+      - { line: "port link-type trunk", text: "Sets the port type to trunk." }
+      - { line: "port trunk allow-pass vlan ...", text: "Adds VLANs to the allowed list (VRP uses spaces and 'to')." }
+    expected_outcome: The listed VLANs are carried tagged.
+    verification_commands:
+      - display port vlan {{interface}}
+    rollback_notes: Use "undo port trunk allow-pass vlan <list>".
+    warnings:
+      - Changes on a live uplink can cut off traffic and management access.
+    tags: [trunk, vlan]
+    related: [vlan-create, eth-trunk-lacp]
+
+  - id: eth-trunk-lacp
+    title: Create an LACP Eth-Trunk
+    category: lag
+    task: configure_eth_trunk
+    summary: Create an Eth-Trunk in static LACP mode and add one member. Repeat for each member.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      trunk_id:
+        type: integer
+        label: Eth-Trunk ID
+        min: 0
+        max: 63
+        example: "1"
+      member:
+        type: string
+        label: Member interface
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){1,3}$'
+        max_length: 40
+        example: GigabitEthernet0/0/1
+    template: |
+      system-view
+      interface Eth-Trunk {{trunk_id}}
+       mode lacp-static
+      quit
+      interface {{member}}
+       eth-trunk {{trunk_id}}
+      quit
+    explanation:
+      - { line: "mode lacp-static", text: "Runs LACP between the two ends." }
+      - { line: "eth-trunk {{trunk_id}}", text: "Adds the member to the Eth-Trunk." }
+    expected_outcome: The Eth-Trunk is up when the peer matches.
+    verification_commands:
+      - display eth-trunk {{trunk_id}}
+    rollback_notes: Use "undo eth-trunk" on members.
+    warnings:
+      - Moving live links into an Eth-Trunk causes a short outage; members must not carry other configuration.
+      - The valid Eth-Trunk ID range depends on the model.
+    tags: [eth-trunk, lacp, lag]
+    related: [trunk-port]
+
+  - id: vlanif-ip
+    title: Assign an IPv4 address to a VLANIF
+    category: ip-addressing
+    task: configure_svi
+    summary: Create a VLAN interface with an IPv4 address.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - The VLAN exists.
+    placeholders:
+      vlan_id:
+        type: integer
+        label: VLAN ID
+        min: 1
+        max: 4094
+        example: "10"
+      ip_address:
+        type: ipv4
+        label: IPv4 address
+        example: 192.168.10.1
+      subnet_mask:
+        type: ipv4_netmask
+        label: Subnet mask
+        example: 255.255.255.0
+    template: |
+      system-view
+      interface Vlanif {{vlan_id}}
+       ip address {{ip_address}} {{subnet_mask}}
+      quit
+    explanation:
+      - { line: "interface Vlanif {{vlan_id}}", text: "Creates the layer-3 interface for the VLAN." }
+    expected_outcome: The VLANIF has the address and is up when the VLAN has an active port.
+    verification_commands:
+      - display ip interface brief
+    rollback_notes: Use "undo ip address".
+    warnings:
+      - The address must not overlap another interface.
+    tags: [vlanif, svi, ip address]
+    related: [vlan-create, static-route]
+
+  - id: static-route
+    title: Add an IPv4 static route
+    category: static-routing
+    task: configure_static_route
+    summary: Add a static route with a next hop.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      dest_network:
+        type: ipv4
+        label: Destination network
+        description: Use 0.0.0.0 with mask 0.0.0.0 for a default route.
+        example: 10.20.0.0
+      subnet_mask:
+        type: ipv4_netmask
+        label: Destination mask
+        example: 255.255.0.0
+      next_hop:
+        type: ipv4
+        label: Next hop
+        example: 192.168.1.254
+    template: |
+      system-view
+      ip route-static {{dest_network}} {{subnet_mask}} {{next_hop}}
+      return
+    explanation:
+      - { line: "ip route-static ...", text: "Installs the static route (default preference 60)." }
+    expected_outcome: The route is listed as Static.
+    verification_commands:
+      - display ip routing-table
+    rollback_notes: Remove with "undo ip route-static ...".
+    warnings:
+      - A wrong default route can break management connectivity.
+    tags: [static route, routing]
+    related: [vlanif-ip, ospf-basic]
+
+  - id: ospf-basic
+    title: Enable OSPF on a network
+    category: ospf
+    task: configure_ospf
+    summary: Create an OSPF process with a router ID and advertise a network into an area.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      process_id:
+        type: integer
+        label: Process ID
+        min: 1
+        max: 65535
+        example: "1"
+      router_id:
+        type: ipv4
+        label: Router ID
+        example: 1.1.1.1
+      area:
+        type: integer
+        label: Area
+        min: 0
+        max: 4294967295
+        example: "0"
+      network:
+        type: ipv4
+        label: Network address
+        example: 192.168.10.0
+      wildcard_mask:
+        type: ipv4_wildcard
+        label: Wildcard mask
+        example: 0.0.0.255
+    template: |
+      system-view
+      ospf {{process_id}} router-id {{router_id}}
+       area {{area}}
+        network {{network}} {{wildcard_mask}}
+      return
+    explanation:
+      - { line: "ospf {{process_id}} router-id {{router_id}}", text: "Creates the process with a fixed router ID." }
+      - { line: "network {{network}} {{wildcard_mask}}", text: "Enables OSPF on matching interfaces inside the area." }
+    expected_outcome: OSPF neighbours form on matching interfaces.
+    verification_commands:
+      - display ospf peer
+      - display ospf routing
+    rollback_notes: Remove with "undo ospf <id>".
+    tags: [ospf, routing]
+    related: [static-route, bgp-peer]
+
+  - id: bgp-peer
+    title: Configure a BGP peer and advertise a network
+    category: bgp
+    task: configure_bgp
+    summary: Create a BGP process, a peer and a network statement.
+    difficulty: advanced
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Layer-3 reachability to the peer.
+      - The advertised network exists in the routing table with an exact match.
+    placeholders:
+      local_as:
+        type: integer
+        label: Local AS
+        min: 1
+        max: 4294967295
+        example: "65001"
+      router_id:
+        type: ipv4
+        label: Router ID
+        example: 1.1.1.1
+      peer_ip:
+        type: ipv4
+        label: Peer IP
+        example: 192.0.2.2
+      remote_as:
+        type: integer
+        label: Remote AS
+        min: 1
+        max: 4294967295
+        example: "65002"
+      network:
+        type: ipv4
+        label: Network
+        example: 198.51.100.0
+      subnet_mask:
+        type: ipv4_netmask
+        label: Network mask
+        example: 255.255.255.0
+    template: |
+      system-view
+      bgp {{local_as}}
+       router-id {{router_id}}
+       peer {{peer_ip}} as-number {{remote_as}}
+       network {{network}} {{subnet_mask}}
+      return
+    explanation:
+      - { line: "peer {{peer_ip}} as-number {{remote_as}}", text: "Defines the BGP peer." }
+      - { line: "network {{network}} {{subnet_mask}}", text: "Originates the prefix if an exact route exists." }
+    expected_outcome: The session reaches Established.
+    verification_commands:
+      - display bgp peer
+      - display bgp routing-table
+    rollback_notes: Remove with "undo peer <ip>" or "undo bgp <as>".
+    warnings:
+      - Add route policies before peering with an external AS.
+      - Newer VRP releases may require enabling the peer under an address family.
+      - Authentication is not included to avoid embedding secrets.
+    tags: [bgp, routing]
+    related: [ospf-basic]
+
+  - id: acl-advanced-tcp
+    title: Advanced ACL permitting TCP to a host, applied inbound
+    category: acl
+    task: configure_acl
+    summary: Create an advanced ACL permitting one TCP service and apply it with a traffic filter.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Console access in case you block your own session.
+    placeholders:
+      acl_number:
+        type: integer
+        label: ACL number
+        description: Advanced ACLs use 3000-3999.
+        min: 3000
+        max: 3999
+        example: "3000"
+      source_network:
+        type: ipv4
+        label: Source network
+        example: 10.0.0.0
+      source_wildcard:
+        type: ipv4_wildcard
+        label: Source wildcard
+        example: 0.0.0.255
+      dest_host:
+        type: ipv4
+        label: Destination host
+        example: 192.168.10.10
+      port:
+        type: integer
+        label: TCP destination port
+        min: 1
+        max: 65535
+        example: "22"
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){1,3}$'
+        max_length: 40
+        example: GigabitEthernet0/0/1
+    template: |
+      system-view
+      acl number {{acl_number}}
+       rule 5 permit tcp source {{source_network}} {{source_wildcard}} destination {{dest_host}} 0 destination-port eq {{port}}
+      quit
+      interface {{interface}}
+       traffic-filter inbound acl {{acl_number}}
+      quit
+    explanation:
+      - { line: "rule 5 permit tcp ...", text: "Permits the TCP service; destination mask 0 means a single host." }
+      - { line: "traffic-filter inbound acl ...", text: "Applies the ACL to inbound traffic." }
+    expected_outcome: Only matching traffic is accepted inbound.
+    verification_commands:
+      - display acl {{acl_number}}
+    rollback_notes: Remove with "undo traffic-filter inbound" on the interface.
+    warnings:
+      - Traffic-filter default action and rule syntax depend on model and VRP version; test first.
+    tags: [acl, filtering]
+    related: [nat-easy-ip]
+
+  - id: nat-easy-ip
+    title: Easy IP NAT on an outbound interface
+    category: nat
+    task: configure_nat
+    summary: Translate an inside network to the outbound interface address.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      acl_number:
+        type: integer
+        label: Basic ACL number
+        description: Basic ACLs use 2000-2999.
+        min: 2000
+        max: 2999
+        example: "2000"
+      inside_network:
+        type: ipv4
+        label: Inside network
+        example: 192.168.10.0
+      wildcard_mask:
+        type: ipv4_wildcard
+        label: Wildcard mask
+        example: 0.0.0.255
+      interface:
+        type: string
+        label: Outbound interface
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){1,3}$'
+        max_length: 40
+        example: GigabitEthernet0/0/1
+    template: |
+      system-view
+      acl number {{acl_number}}
+       rule 5 permit source {{inside_network}} {{wildcard_mask}}
+      quit
+      interface {{interface}}
+       nat outbound {{acl_number}}
+      quit
+    explanation:
+      - { line: "nat outbound {{acl_number}}", text: "Translates matching sources to the interface address (Easy IP)." }
+    expected_outcome: Inside hosts reach external networks using the interface address.
+    verification_commands:
+      - display nat session all
+    rollback_notes: Remove with "undo nat outbound <acl>".
+    warnings:
+      - NAT support and syntax depend on the product; many switches do not support NAT.
+    tags: [nat, easy ip]
+    related: [acl-advanced-tcp]
+
+  - id: stp-rstp
+    title: Use RSTP and set the bridge priority
+    category: stp
+    task: configure_stp
+    summary: Set RSTP mode and the bridge priority.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      priority:
+        type: integer
+        label: Bridge priority
+        min: 0
+        max: 61440
+        multiple_of: 4096
+        example: "4096"
+    template: |
+      system-view
+      stp mode rstp
+      stp priority {{priority}}
+      return
+    explanation:
+      - { line: "stp priority {{priority}}", text: "Lower values are more likely to become root." }
+    expected_outcome: The switch becomes root if its priority is lowest.
+    verification_commands:
+      - display stp brief
+    rollback_notes: Use "undo stp priority".
+    warnings:
+      - Changing the root bridge changes traffic paths network-wide.
+    tags: [stp, rstp]
+    related: []
+
+  - id: dhcp-global-pool
+    title: Create a global DHCP address pool on a VLANIF
+    category: dhcp
+    task: configure_dhcp_pool
+    summary: Enable DHCP, create a pool and have a VLANIF use it.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - The VLANIF exists with an address in the pool's subnet.
+    placeholders:
+      pool_name:
+        type: string
+        label: Pool name
+        pattern: '^[A-Za-z][A-Za-z0-9_\-]{0,30}$'
+        max_length: 31
+        example: VLAN10-POOL
+      gateway:
+        type: ipv4
+        label: Gateway
+        example: 192.168.10.1
+      network:
+        type: ipv4
+        label: Network
+        example: 192.168.10.0
+      subnet_mask:
+        type: ipv4_netmask
+        label: Subnet mask
+        example: 255.255.255.0
+      dns_server:
+        type: ipv4
+        label: DNS server
+        example: 192.168.10.2
+      vlan_id:
+        type: integer
+        label: VLANIF
+        min: 1
+        max: 4094
+        example: "10"
+    template: |
+      system-view
+      dhcp enable
+      ip pool {{pool_name}}
+       gateway-list {{gateway}}
+       network {{network}} mask {{subnet_mask}}
+       dns-list {{dns_server}}
+      quit
+      interface Vlanif {{vlan_id}}
+       dhcp select global
+      quit
+    explanation:
+      - { line: "dhcp enable", text: "Turns on the DHCP service." }
+      - { line: "dhcp select global", text: "Makes the interface serve clients from the global pool." }
+    expected_outcome: Clients in the VLAN receive leases.
+    verification_commands:
+      - display ip pool name {{pool_name}} used
+    rollback_notes: Remove with "undo dhcp select" and "undo ip pool <name>".
+    warnings:
+      - A second DHCP server in the same subnet can cause address conflicts.
+    tags: [dhcp, pool]
+    related: [vlanif-ip]
+
+  - id: ssh-stelnet
+    title: Enable SSH (STelnet) on the VTY lines
+    category: management
+    task: configure_ssh
+    summary: Enable the STelnet server and allow only SSH on VTY lines with AAA authentication.
+    difficulty: intermediate
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - A local AAA user with SSH service type already exists (create separately; no credentials are generated here).
+      - An RSA host key exists (rsa local-key-pair create).
+    template: |
+      system-view
+      stelnet server enable
+      user-interface vty 0 4
+       authentication-mode aaa
+       protocol inbound ssh
+      quit
+    explanation:
+      - { line: "stelnet server enable", text: "Enables the SSH server." }
+      - { line: "protocol inbound ssh", text: "Allows only SSH on the VTY lines." }
+    expected_outcome: SSH sessions succeed for a configured AAA user.
+    verification_commands:
+      - display ssh server status
+    rollback_notes: Keep console access available while changing remote access.
+    warnings:
+      - Without a valid AAA user and host key you can lock yourself out of remote access.
+      - Some VRP releases need additional commands (for example "ssh user <name> service-type stelnet").
+    tags: [ssh, stelnet, management]
+    related: []
+
+  - id: ntp-server
+    title: Configure an NTP server
+    category: time-logging
+    task: configure_ntp
+    summary: Synchronise the device clock with an NTP server.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      ntp_server:
+        type: ipv4
+        label: NTP server
+        example: 192.0.2.123
+    template: |
+      system-view
+      ntp-service unicast-server {{ntp_server}}
+      return
+    explanation:
+      - { line: "ntp-service unicast-server", text: "Sets the time source." }
+    expected_outcome: The clock synchronises after a few minutes.
+    verification_commands:
+      - display ntp-service status
+    rollback_notes: Remove with "undo ntp-service unicast-server <ip>".
+    tags: [ntp, time]
+    related: []
+
+  - id: save-config
+    title: Save the current configuration
+    category: save-verify
+    task: save_config
+    kind: operational
+    summary: Save the active configuration so it is used on the next start.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    prerequisites:
+      - Run in user view.
+    template: |
+      save
+    explanation:
+      - { line: "save", text: "Prompts for confirmation (Y/N) and a file name; accept the default to overwrite the startup file." }
+    expected_outcome: The configuration is saved.
+    verification_commands:
+      - display saved-configuration
+    rollback_notes: Keep a backup of the previous saved configuration.
+    warnings:
+      - Saving a faulty configuration makes it persist after reboot.
+    tags: [save, saved-configuration]
+    related: []
+
+  - id: health-display
+    title: Check interface and VLAN status
+    category: troubleshooting
+    task: show_interface_errors
+    kind: show
+    summary: Read-only display commands to review interfaces, VLANs and routes.
+    difficulty: beginner
+    verification_status: unverified
+    added_at: 2026-10-18
+    placeholders:
+      interface:
+        type: string
+        label: Interface
+        pattern: '^[A-Za-z][A-Za-z\-]{1,30}[0-9]+(/[0-9]+){1,3}$'
+        max_length: 40
+        example: GigabitEthernet0/0/1
+    template: |
+      display interface brief
+      display interface {{interface}}
+      display vlan
+      display ip routing-table
+    explanation:
+      - { line: "display interface {{interface}}", text: "Detailed state and error counters for one port." }
+    expected_outcome: Read-only output.
+    verification_commands: []
+    tags: [display, show, interface, errors, troubleshooting]
+    related: []

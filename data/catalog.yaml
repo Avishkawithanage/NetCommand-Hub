@@ -1,0 +1,130 @@
+vendors:
+  - id: cisco
+    name: Cisco
+    description: Cisco IOS, IOS-XE and NX-OS switches and routers.
+    website_url: https://www.cisco.com
+  - id: dell
+    name: Dell
+    description: Dell Networking switches running OS6, OS9 and SmartFabric OS10. Syntax differs between these operating systems.
+    website_url: https://www.dell.com
+  - id: huawei
+    name: Huawei
+    description: Huawei switches and routers running VRP (Versatile Routing Platform).
+    website_url: https://www.huawei.com
+  - id: fortinet
+    name: Fortinet
+    description: FortiGate firewalls running FortiOS.
+    website_url: https://www.fortinet.com
+
+platforms:
+  - id: ios
+    vendor: cisco
+    name: Cisco IOS
+    os_family: IOS
+    version_notes: Classic IOS on Catalyst switches and ISR routers. Exact release support is not verified per template.
+  - id: ios-xe
+    vendor: cisco
+    name: Cisco IOS-XE
+    os_family: IOS-XE
+    version_notes: IOS-XE on Catalyst 9000, ISR/ASR and similar. Exact release support is not verified per template.
+  - id: nx-os
+    vendor: cisco
+    name: Cisco NX-OS
+    os_family: NX-OS
+    version_notes: Nexus data-centre switches. Many features require "feature" commands first. Not interchangeable with IOS/IOS-XE.
+  - id: os6
+    vendor: dell
+    name: Dell Networking OS6
+    os_family: OS6
+    version_notes: Dell N-Series / PowerConnect-era switches. Do not assume OS9 or OS10 syntax applies.
+  - id: os9
+    vendor: dell
+    name: Dell Networking OS9
+    os_family: OS9
+    version_notes: Dell S-Series / Z-Series (formerly FTOS). Do not assume OS6 or OS10 syntax applies.
+  - id: os10
+    vendor: dell
+    name: Dell SmartFabric OS10
+    os_family: OS10
+    version_notes: Dell PowerSwitch (S/Z/N-Series on OS10). Do not assume OS6 or OS9 syntax applies.
+  - id: vrp
+    vendor: huawei
+    name: Huawei VRP
+    os_family: VRP
+    version_notes: Command availability varies by product and VRP version (V100R/V200R/V600R). Verify on your device.
+  - id: fortios
+    vendor: fortinet
+    name: FortiGate FortiOS
+    os_family: FortiOS
+    version_notes: CLI syntax varies by FortiOS version and FortiGate model. Verify on your unit.
+
+categories:
+  - id: basics
+    name: Device basics
+    description: Hostnames, command modes and system basics.
+  - id: interface
+    name: Interfaces
+    description: Interface settings and VLAN interfaces.
+  - id: vlan
+    name: VLANs
+    description: Creating and naming VLANs.
+  - id: switchport
+    name: Access and trunk ports
+    description: Assigning ports to VLANs and carrying multiple VLANs.
+  - id: lag
+    name: Link aggregation
+    description: EtherChannel, Port-Channel, LAG and Eth-Trunk.
+  - id: stp
+    name: Spanning Tree
+    description: STP mode and root-bridge priority.
+  - id: ip-addressing
+    name: IPv4 addressing
+    description: Assigning IPv4 addresses to interfaces and SVIs.
+  - id: static-routing
+    name: Static routing
+    description: Static and default routes.
+  - id: ospf
+    name: OSPF
+    description: OSPF routing.
+  - id: bgp
+    name: BGP
+    description: BGP neighbours and advertised networks.
+  - id: acl
+    name: ACL
+    description: Access control lists and their application.
+  - id: nat
+    name: NAT
+    description: Network address translation.
+  - id: dhcp
+    name: DHCP
+    description: DHCP servers and pools.
+  - id: management
+    name: Management access
+    description: SSH and administrative access.
+  - id: time-logging
+    name: NTP and logging
+    description: Time synchronisation and syslog.
+  - id: save-verify
+    name: Save and verify
+    description: Saving configuration and show/display verification commands.
+  - id: backup
+    name: Backup and recovery
+    description: Configuration backup guidance.
+  - id: firewall-policy
+    name: Firewall policies
+    description: Firewall policies and policy objects.
+  - id: objects
+    name: Address and service objects
+    description: Reusable address and service objects.
+  - id: vpn
+    name: IPsec VPN
+    description: Site-to-site IPsec VPN.
+  - id: sdwan
+    name: SD-WAN
+    description: SD-WAN members and zones.
+  - id: security-profiles
+    name: Security profiles
+    description: Antivirus, SSL inspection and other UTM profiles.
+  - id: troubleshooting
+    name: Troubleshooting
+    description: Read-only diagnostics and show commands.
